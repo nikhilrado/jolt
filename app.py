@@ -63,7 +63,7 @@ else:
 # Strava configuration
 STRAVA_CLIENT_ID = os.getenv('STRAVA_CLIENT_ID')
 STRAVA_CLIENT_SECRET = os.getenv('STRAVA_CLIENT_SECRET')
-STRAVA_REDIRECT_URI = os.getenv('STRAVA_REDIRECT_URI', 'http://localhost:5000/strava/callback')
+STRAVA_REDIRECT_URI = os.getenv('STRAVA_REDIRECT_URI', 'https://jolt.nikhilrado.com/strava/callback')
 
 # Personal Access Token utilities
 def generate_pat():
@@ -371,8 +371,8 @@ def strava_callback():
                 if missing_scopes:
                     flash(f'Warning: Some permissions were not granted: {", ".join(missing_scopes)}', 'warning')
                 
-                flash('Strava connected successfully!', 'success')
-            else:
+            flash('Strava connected successfully!', 'success')
+        else:
                 flash('Failed to store Strava credentials', 'error')
         else:
             error_description = token_response.get('message', 'Unknown error')
@@ -2706,7 +2706,7 @@ def get_user_notifications():
 
 
 
-        return redirect(url_for('home'))
+    return redirect(url_for('home'))
 
 # ============================================================================
 # SLEEP TRACKING ENDPOINTS
