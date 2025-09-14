@@ -1374,6 +1374,200 @@ def api_psychology_insights():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/psychology/submit-wellness', methods=['POST'])
+def submit_wellness_data():
+    """Submit wellness/feeling data for psychology analysis"""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    user_id = session['user']['id']
+    if not strava_token_manager or not strava_token_manager.is_connected(user_id):
+        return jsonify({'error': 'Strava not connected'}), 400
+    
+    try:
+        # Get wellness data from request
+        wellness_data = request.get_json()
+        
+        if not wellness_data:
+            return jsonify({'error': 'No wellness data provided'}), 400
+        
+        # Validate required fields
+        required_fields = ['mood', 'stress', 'motivation']
+        for field in required_fields:
+            if field not in wellness_data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Validate field values (should be 1-10 scale)
+        for field in ['mood', 'stress', 'motivation', 'sleep_quality', 'soreness', 'perceived_effort']:
+            if field in wellness_data:
+                value = wellness_data[field]
+                if not isinstance(value, (int, float)) or value < 1 or value > 10:
+                    return jsonify({'error': f'{field} must be a number between 1-10'}), 400
+        
+        access_token = get_user_strava_token(user_id)
+        if not access_token:
+            return jsonify({'error': 'Strava connection expired'}), 400
+        
+        headers = {'Authorization': f'Bearer {access_token}'}
+        psychology_engine = PerformancePsychologyEngine(headers)
+        
+        # Submit wellness data
+        success = psychology_engine.submit_wellness_data(wellness_data)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Wellness data submitted successfully',
+                'data': wellness_data
+            })
+        else:
+            return jsonify({'error': 'Failed to submit wellness data'}), 500
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/psychology/analyze-feelings', methods=['POST'])
+def analyze_feelings():
+    """Analyze user's feelings and provide psychological insights"""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    user_id = session['user']['id']
+    if not strava_token_manager or not strava_token_manager.is_connected(user_id):
+        return jsonify({'error': 'Strava not connected'}), 400
+    
+    try:
+        # Get wellness data from request
+        wellness_data = request.get_json()
+        
+        if not wellness_data:
+            return jsonify({'error': 'No wellness data provided'}), 400
+        
+        # Validate required fields
+        required_fields = ['mood', 'stress', 'motivation']
+        for field in required_fields:
+            if field not in wellness_data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Validate field values (should be 1-10 scale)
+        for field in ['mood', 'stress', 'motivation', 'sleep_quality', 'soreness', 'perceived_effort']:
+            if field in wellness_data:
+                value = wellness_data[field]
+                if not isinstance(value, (int, float)) or value < 1 or value > 10:
+                    return jsonify({'error': f'{field} must be a number between 1-10'}), 400
+        
+        access_token = get_user_strava_token(user_id)
+        if not access_token:
+            return jsonify({'error': 'Strava connection expired'}), 400
+        
+        headers = {'Authorization': f'Bearer {access_token}'}
+        psychology_engine = PerformancePsychologyEngine(headers)
+        
+        # Submit wellness data first
+        wellness_success = psychology_engine.submit_wellness_data(wellness_data)
+        
+        if not wellness_success:
+            return jsonify({'error': 'Failed to submit wellness data'}), 500
+        
+        # Get time period from query parameter (default to 7 days for recent analysis)
+        days = request.args.get('days', 7, type=int)
+        valid_periods = [7, 14, 30, 60, 90]
+        
+        if days not in valid_periods:
+            days = 7  # Default fallback
+        
+        # Get comprehensive psychology analysis
+        analysis = psychology_engine.analyze_performance_psychology(days=days)
+        
+        # Create personalized insights based on current feelings
+        current_mood = wellness_data.get('mood', 5)
+        current_stress = wellness_data.get('stress', 5)
+        current_motivation = wellness_data.get('motivation', 5)
+        
+        # Generate personalized recommendations
+        personalized_insights = []
+        
+        if current_mood < 4:
+            personalized_insights.append({
+                'type': 'mood_support',
+                'title': 'Low Mood Detected',
+                'message': 'Your mood is quite low today. Consider light exercise or activities you enjoy.',
+                'recommendations': [
+                    'Try a gentle walk or easy run',
+                    'Focus on activities that bring you joy',
+                    'Consider talking to someone about how you feel'
+                ]
+            })
+        elif current_mood > 7:
+            personalized_insights.append({
+                'type': 'mood_positive',
+                'title': 'Great Mood!',
+                'message': 'You\'re feeling great today! This is a perfect time for challenging workouts.',
+                'recommendations': [
+                    'Consider a challenging workout or new activity',
+                    'Set new personal records or goals',
+                    'Share your positive energy with others'
+                ]
+            })
+        
+        if current_stress > 7:
+            personalized_insights.append({
+                'type': 'stress_management',
+                'title': 'High Stress Level',
+                'message': 'You\'re experiencing high stress. Exercise can help, but don\'t overdo it.',
+                'recommendations': [
+                    'Try stress-relieving activities like yoga or meditation',
+                    'Avoid high-intensity workouts if feeling overwhelmed',
+                    'Focus on recovery and self-care'
+                ]
+            })
+        
+        if current_motivation < 4:
+            personalized_insights.append({
+                'type': 'motivation_boost',
+                'title': 'Low Motivation',
+                'message': 'Motivation is low today. Start small and build momentum.',
+                'recommendations': [
+                    'Set small, achievable goals for today',
+                    'Try a different type of exercise or activity',
+                    'Remember your long-term goals and why you started'
+                ]
+            })
+        
+        # Combine with existing analysis
+        response = {
+            'success': True,
+            'submitted_wellness_data': wellness_data,
+            'personalized_insights': personalized_insights,
+            'performance_analysis': {
+                'analysis_period': analysis['analysis_period'],
+                'total_activities': len(analysis['activities']),
+                'performance_events': len(analysis['performance_events']),
+                'psychological_insights': [
+                    {
+                        'title': insight.title,
+                        'description': insight.description,
+                        'recommendations': insight.recommendations,
+                        'confidence': insight.confidence
+                    } for insight in analysis['psychological_insights']
+                ]
+            },
+            'recommendations': analysis['recommendations'],
+            'wellness_trends': [
+                {
+                    'metric': trend.metric,
+                    'trend_direction': trend.trend_direction,
+                    'trend_strength': trend.trend_strength,
+                    'recent_values': trend.recent_values
+                } for trend in analysis['wellness_trends']
+            ]
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # Personal Access Token Management Routes
 @app.route('/api-token')
 @require_auth

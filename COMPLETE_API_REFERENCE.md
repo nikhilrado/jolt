@@ -51,6 +51,8 @@ This document provides a comprehensive list of all API endpoints in the Jolt app
 | `GET` | `/api/psychology/performance-events` | Performance events with context | Session |
 | `GET` | `/api/psychology/split-analysis/<activity_id>` | Detailed split analysis | Session |
 | `GET` | `/api/psychology/insights` | Psychology insights and recommendations | Session |
+| `POST` | `/api/psychology/submit-wellness` | Submit wellness/feeling data | Session |
+| `POST` | `/api/psychology/analyze-feelings` | Analyze feelings and get personalized insights | Session |
 
 ### Nutrition Tracking
 | Method | Endpoint | Description | Auth |
@@ -120,7 +122,92 @@ This document provides a comprehensive list of all API endpoints in the Jolt app
 - **🔧 Admin/Cron**: 7 endpoints
 - **🎯 Web UI**: 3 endpoints
 
-### **Total: 36 API Endpoints**
+### **Total: 38 API Endpoints**
+
+---
+
+## 🧠 New Psychology Endpoints (User Input)
+
+### **Submit Wellness Data**
+**Endpoint:** `POST /api/psychology/submit-wellness`
+
+**Description:** Submit your current feelings and wellness data for psychology analysis.
+
+**Request Body:**
+```json
+{
+  "mood": 7,           // 1-10 scale (1=very low, 10=excellent)
+  "stress": 4,          // 1-10 scale (1=no stress, 10=extremely stressed)  
+  "motivation": 8,      // 1-10 scale (1=no motivation, 10=highly motivated)
+  "sleep_quality": 6,   // 1-10 scale (1=poor sleep, 10=excellent sleep)
+  "soreness": 3,        // 1-10 scale (1=no soreness, 10=very sore)
+  "perceived_effort": 5 // 1-10 scale (1=very easy, 10=maximum effort)
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Wellness data submitted successfully",
+  "data": { /* submitted data */ }
+}
+```
+
+### **Analyze Feelings**
+**Endpoint:** `POST /api/psychology/analyze-feelings`
+
+**Description:** Submit your feelings and get personalized psychological insights and recommendations.
+
+**Request Body:** Same as submit-wellness endpoint
+
+**Response:**
+```json
+{
+  "success": true,
+  "submitted_wellness_data": { /* your input */ },
+  "personalized_insights": [
+    {
+      "type": "mood_support",
+      "title": "Low Mood Detected", 
+      "message": "Your mood is quite low today...",
+      "recommendations": [
+        "Try a gentle walk or easy run",
+        "Focus on activities that bring you joy"
+      ]
+    }
+  ],
+  "performance_analysis": {
+    "analysis_period": "7 days",
+    "total_activities": 5,
+    "psychological_insights": [ /* detailed insights */ ]
+  },
+  "recommendations": [ /* general recommendations */ ],
+  "wellness_trends": [ /* trend analysis */ ]
+}
+```
+
+### **Example Usage:**
+```bash
+# Submit how you're feeling
+curl -X POST -H "Content-Type: application/json" \
+  -H "Cookie: session=your_session_cookie" \
+  -d '{
+    "mood": 3,
+    "stress": 8, 
+    "motivation": 2,
+    "sleep_quality": 4,
+    "soreness": 6,
+    "perceived_effort": 7
+  }' \
+  http://localhost:5001/api/psychology/analyze-feelings
+```
+
+### **Personalized Insights Types:**
+- **`mood_support`**: When mood < 4, provides gentle exercise recommendations
+- **`mood_positive`**: When mood > 7, suggests challenging workouts
+- **`stress_management`**: When stress > 7, recommends stress-relieving activities
+- **`motivation_boost`**: When motivation < 4, provides motivation-building tips
 
 ---
 
