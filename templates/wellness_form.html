@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Wellness Tracking - Jolt{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-heartbeat"></i> Daily Wellness Check-in</h2>
+            <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Home
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-clipboard-list"></i> How are you feeling today?</h4>
+                <p class="text-muted mb-0">Help us understand your current state to provide better training recommendations.</p>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <!-- Mood -->
+                    <div class="mb-4">
+                        <label class="form-label">
+                            <i class="fas fa-smile text-warning"></i> <strong>Mood (1-5)</strong>
+                        </label>
+                        <p class="text-muted">How is your overall mood today?</p>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="mood" id="mood1" value="1">
+                            <label class="btn btn-outline-secondary" for="mood1">😞 1</label>
+                            
+                            <input type="radio" class="btn-check" name="mood" id="mood2" value="2">
+                            <label class="btn btn-outline-secondary" for="mood2">😕 2</label>
+                            
+                            <input type="radio" class="btn-check" name="mood" id="mood3" value="3" checked>
+                            <label class="btn btn-outline-secondary" for="mood3">😐 3</label>
+                            
+                            <input type="radio" class="btn-check" name="mood" id="mood4" value="4">
+                            <label class="btn btn-outline-secondary" for="mood4">😊 4</label>
+                            
+                            <input type="radio" class="btn-check" name="mood" id="mood5" value="5">
+                            <label class="btn btn-outline-secondary" for="mood5">😄 5</label>
+                        </div>
+                    </div>
+
+                    <!-- Stress -->
+                    <div class="mb-4">
+                        <label class="form-label">
+                            <i class="fas fa-brain text-danger"></i> <strong>Stress Level (1-5)</strong>
+                        </label>
+                        <p class="text-muted">How stressed do you feel today?</p>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="stress" id="stress1" value="1">
+                            <label class="btn btn-outline-success" for="stress1">😌 1 (Very Low)</label>
+                            
+                            <input type="radio" class="btn-check" name="stress" id="stress2" value="2">
+                            <label class="btn btn-outline-success" for="stress2">😐 2 (Low)</label>
+                            
+                            <input type="radio" class="btn-check" name="stress" id="stress3" value="3" checked>
+                            <label class="btn btn-outline-warning" for="stress3">😕 3 (Moderate)</label>
+                            
+                            <input type="radio" class="btn-check" name="stress" id="stress4" value="4">
+                            <label class="btn btn-outline-warning" for="stress4">😰 4 (High)</label>
+                            
+                            <input type="radio" class="btn-check" name="stress" id="stress5" value="5">
+                            <label class="btn btn-outline-danger" for="stress5">😱 5 (Very High)</label>
+                        </div>
+                    </div>
+
+                    <!-- Motivation -->
+                    <div class="mb-4">
+                        <label class="form-label">
+                            <i class="fas fa-fire text-warning"></i> <strong>Training Motivation (1-5)</strong>
+                        </label>
+                        <p class="text-muted">How motivated are you to train today?</p>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="motivation" id="motivation1" value="1">
+                            <label class="btn btn-outline-secondary" for="motivation1">😴 1 (Very Low)</label>
+                            
+                            <input type="radio" class="btn-check" name="motivation" id="motivation2" value="2">
+                            <label class="btn btn-outline-secondary" for="motivation2">😑 2 (Low)</label>
+                            
+                            <input type="radio" class="btn-check" name="motivation" id="motivation3" value="3" checked>
+                            <label class="btn btn-outline-info" for="motivation3">😐 3 (Moderate)</label>
+                            
+                            <input type="radio" class="btn-check" name="motivation" id="motivation4" value="4">
+                            <label class="btn btn-outline-primary" for="motivation4">💪 4 (High)</label>
+                            
+                            <input type="radio" class="btn-check" name="motivation" id="motivation5" value="5">
+                            <label class="btn btn-outline-success" for="motivation5">🔥 5 (Very High)</label>
+                        </div>
+                    </div>
+
+                    <!-- Sleep Quality -->
+                    <div class="mb-4">
+                        <label class="form-label">
+                            <i class="fas fa-bed text-info"></i> <strong>Sleep Quality (1-5)</strong>
+                        </label>
+                        <p class="text-muted">How well did you sleep last night?</p>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="sleep_quality" id="sleep1" value="1">
+                            <label class="btn btn-outline-danger" for="sleep1">😵 1 (Very Poor)</label>
+                            
+                            <input type="radio" class="btn-check" name="sleep_quality" id="sleep2" value="2">
+                            <label class="btn btn-outline-warning" for="sleep2">😴 2 (Poor)</label>
+                            
+                            <input type="radio" class="btn-check" name="sleep_quality" id="sleep3" value="3" checked>
+                            <label class="btn btn-outline-info" for="sleep3">😐 3 (Average)</label>
+                            
+                            <input type="radio" class="btn-check" name="sleep_quality" id="sleep4" value="4">
+                            <label class="btn btn-outline-success" for="sleep4">😊 4 (Good)</label>
+                            
+                            <input type="radio" class="btn-check" name="sleep_quality" id="sleep5" value="5">
+                            <label class="btn btn-outline-success" for="sleep5">😌 5 (Excellent)</label>
+                        </div>
+                    </div>
+
+                    <!-- Soreness -->
+                    <div class="mb-4">
+                        <label class="form-label">
+                            <i class="fas fa-hand-paper text-warning"></i> <strong>Muscle Soreness (1-5)</strong>
+                        </label>
+                        <p class="text-muted">How sore are your muscles today?</p>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="soreness" id="soreness1" value="1">
+                            <label class="btn btn-outline-success" for="soreness1">😌 1 (None)</label>
+                            
+                            <input type="radio" class="btn-check" name="soreness" id="soreness2" value="2">
+                            <label class="btn btn-outline-success" for="soreness2">😐 2 (Slight)</label>
+                            
+                            <input type="radio" class="btn-check" name="soreness" id="soreness3" value="3" checked>
+                            <label class="btn btn-outline-warning" for="soreness3">😕 3 (Moderate)</label>
+                            
+                            <input type="radio" class="btn-check" name="soreness" id="soreness4" value="4">
+                            <label class="btn btn-outline-warning" for="soreness4">😣 4 (High)</label>
+                            
+                            <input type="radio" class="btn-check" name="soreness" id="soreness5" value="5">
+                            <label class="btn btn-outline-danger" for="soreness5">😫 5 (Very High)</label>
+                        </div>
+                    </div>
+
+                    <!-- Perceived Effort -->
+                    <div class="mb-4">
+                        <label class="form-label">
+                            <i class="fas fa-heartbeat text-danger"></i> <strong>Perceived Recovery (1-10)</strong>
+                        </label>
+                        <p class="text-muted">How recovered do you feel for training today?</p>
+                        <div class="row">
+                            {% for i in range(1, 11) %}
+                            <div class="col-6 col-md-1 mb-2">
+                                <input type="radio" class="btn-check" name="perceived_effort" id="recovery{{ i }}" value="{{ i }}" {% if i == 5 %}checked{% endif %}>
+                                <label class="btn btn-outline-{{ 'danger' if i <= 3 else 'warning' if i <= 6 else 'success' }} btn-sm w-100" for="recovery{{ i }}">{{ i }}</label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="row text-center mt-2">
+                            <div class="col-4">
+                                <small class="text-danger">Poor Recovery</small>
+                            </div>
+                            <div class="col-4">
+                                <small class="text-warning">Moderate</small>
+                            </div>
+                            <div class="col-4">
+                                <small class="text-success">Excellent Recovery</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="fas fa-check"></i> Submit Wellness Check-in
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <div class="card mt-4">
+            <div class="card-body">
+                <h5><i class="fas fa-info-circle text-info"></i> Why We Track This</h5>
+                <p class="text-muted">
+                    By understanding your daily wellness state, we can provide more personalized training recommendations. 
+                    This data helps us:
+                </p>
+                <ul class="text-muted">
+                    <li>Adjust training intensity based on your readiness</li>
+                    <li>Identify patterns in your recovery and performance</li>
+                    <li>Prevent overtraining and injury</li>
+                    <li>Optimize your training schedule</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

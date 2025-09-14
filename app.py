@@ -4,6 +4,9 @@ from supabase import create_client, Client
 import requests
 from dotenv import load_dotenv
 import json
+import statistics
+from analytics_engine import AdvancedAnalyticsEngine, WellnessMetrics, TrainingInsights
+from performance_psychology import PerformancePsychologyEngine
 import hashlib
 import secrets
 from functools import wraps
@@ -14,6 +17,10 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
+
+# CalAI API configuration
+CALAI_API_URL = "http://api.calai.app/v4/describeMeal"
+CALAI_API_KEY = os.getenv('CALAI_API_KEY')  # You'll need to add this to your .env file
 
 # Supabase configuration
 SUPABASE_URL = os.getenv('SUPABASE_URL')
@@ -272,7 +279,7 @@ def strava_callback():
 
 @app.route('/strava/activities')
 def strava_activities():
-    """Display Strava activities"""
+    """Display Strava activities with detailed data"""
     if 'user' not in session:
         return redirect(url_for('login'))
     
@@ -285,11 +292,17 @@ def strava_activities():
         headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
         activities_url = 'https://www.strava.com/api/v3/athlete/activities'
         
-        response = requests.get(activities_url, headers=headers, params={'per_page': 10})
+        response = requests.get(activities_url, headers=headers, params={'per_page': 20})
         activities = response.json()
         
         if response.status_code == 200:
-            return render_template('activities.html', activities=activities)
+            # Enhance each activity with detailed data
+            enhanced_activities = []
+            for activity in activities:
+                enhanced_activity = enhance_activity_data(activity, headers)
+                enhanced_activities.append(enhanced_activity)
+            
+            return render_template('activities.html', activities=enhanced_activities)
         else:
             flash('Failed to fetch activities from Strava', 'error')
             return redirect(url_for('home'))
@@ -297,6 +310,657 @@ def strava_activities():
     except Exception as e:
         flash(f'Error fetching activities: {str(e)}', 'error')
         return redirect(url_for('home'))
+
+def enhance_activity_data(activity, headers):
+    """Enhance activity with additional detailed data"""
+    activity_id = activity['id']
+    
+    try:
+        # Get detailed activity data
+        detail_url = f'https://www.strava.com/api/v3/activities/{activity_id}'
+        detail_response = requests.get(detail_url, headers=headers)
+        
+        if detail_response.status_code == 200:
+            detailed_activity = detail_response.json()
+            
+            # Merge detailed data with basic activity data
+            activity.update({
+                'detailed': detailed_activity,
+                'has_heartrate': bool(detailed_activity.get('has_heartrate', False)),
+                'has_kudoed': detailed_activity.get('has_kudoed', False),
+                'kudos_count': detailed_activity.get('kudos_count', 0),
+                'comment_count': detailed_activity.get('comment_count', 0),
+                'athlete_count': detailed_activity.get('athlete_count', 1),
+                'average_watts': detailed_activity.get('average_watts'),
+                'max_watts': detailed_activity.get('max_watts'),
+                'weighted_avg_watts': detailed_activity.get('weighted_avg_watts'),
+                'kilojoules': detailed_activity.get('kilojoules'),
+                'average_cadence': detailed_activity.get('average_cadence'),
+                'average_temp': detailed_activity.get('average_temp'),
+                'average_heartrate': detailed_activity.get('average_heartrate'),
+                'max_heartrate': detailed_activity.get('max_heartrate'),
+                'suffer_score': detailed_activity.get('suffer_score'),
+                'calories': detailed_activity.get('calories'),
+                'description': detailed_activity.get('description', ''),
+                'gear': detailed_activity.get('gear', {}),
+                'splits_metric': detailed_activity.get('splits_metric', []),
+                'laps': detailed_activity.get('laps', [])
+            })
+        
+        # Try to get activity streams (mile splits, heart rate data, etc.)
+        try:
+            streams_url = f'https://www.strava.com/api/v3/activities/{activity_id}/streams'
+            streams_response = requests.get(streams_url, headers=headers, params={
+                'keys': 'time,distance,latlng,altitude,heartrate,temp,moving,grade_smooth,velocity_smooth,cadence,watts',
+                'key_by_type': 'true'
+            })
+            
+            if streams_response.status_code == 200:
+                streams_data = streams_response.json()
+                activity['streams'] = streams_data
+                
+                # Process splits data if available
+                if 'distance' in streams_data and 'time' in streams_data:
+                    activity['mile_splits'] = calculate_mile_splits(
+                        streams_data['distance']['data'], 
+                        streams_data['time']['data']
+                    )
+                    
+                # Process heart rate data if available
+                if 'heartrate' in streams_data:
+                    hr_data = streams_data['heartrate']['data']
+                    activity['hr_stats'] = {
+                        'avg_hr': sum(hr_data) / len(hr_data) if hr_data else None,
+                        'max_hr': max(hr_data) if hr_data else None,
+                        'min_hr': min(hr_data) if hr_data else None,
+                        'hr_zones': calculate_hr_zones(hr_data) if hr_data else None
+                    }
+                    
+        except Exception as e:
+            print(f"Could not fetch streams for activity {activity_id}: {e}")
+            activity['streams'] = None
+            
+    except Exception as e:
+        print(f"Could not enhance activity {activity_id}: {e}")
+    
+    return activity
+
+def calculate_mile_splits(distance_data, time_data):
+    """Calculate mile splits from distance and time streams"""
+    if not distance_data or not time_data:
+        return []
+    
+    splits = []
+    mile_meters = 1609.34  # 1 mile in meters
+    
+    for i, distance in enumerate(distance_data):
+        if distance > 0 and distance % mile_meters < 100:  # Within 100m of a mile
+            mile_number = int(distance / mile_meters)
+            if mile_number > 0 and mile_number > len(splits):
+                time_at_mile = time_data[i] if i < len(time_data) else time_data[-1]
+                splits.append({
+                    'mile': mile_number,
+                    'time': time_at_mile,
+                    'pace': time_at_mile / mile_number if mile_number > 0 else 0
+                })
+    
+    return splits
+
+def calculate_hr_zones(hr_data):
+    """Calculate heart rate zones (simplified)"""
+    if not hr_data:
+        return None
+    
+    avg_hr = sum(hr_data) / len(hr_data)
+    max_hr = max(hr_data)
+    
+    # Simple HR zone calculation (you might want to use actual max HR)
+    zones = {
+        'zone_1': sum(1 for hr in hr_data if hr < avg_hr * 0.7),
+        'zone_2': sum(1 for hr in hr_data if avg_hr * 0.7 <= hr < avg_hr * 0.8),
+        'zone_3': sum(1 for hr in hr_data if avg_hr * 0.8 <= hr < avg_hr * 0.9),
+        'zone_4': sum(1 for hr in hr_data if avg_hr * 0.9 <= hr < max_hr * 0.95),
+        'zone_5': sum(1 for hr in hr_data if hr >= max_hr * 0.95)
+    }
+    
+    return zones
+
+# CalAI Integration Functions
+def analyze_meal_with_calai(meal_description):
+    """Analyze meal description using CalAI API"""
+    if not CALAI_API_KEY:
+        raise ValueError("CalAI API key not configured")
+    
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {CALAI_API_KEY}'  # Adjust if CalAI uses different auth
+    }
+    
+    payload = {
+        "data": {
+            "text": meal_description
+        }
+    }
+    
+    try:
+        response = requests.post(CALAI_API_URL, headers=headers, json=payload)
+        response.raise_for_status()
+        
+        result = response.json()
+        if result.get('success'):
+            return result['data']
+        else:
+            raise ValueError(f"CalAI API error: {result.get('error', 'Unknown error')}")
+            
+    except requests.exceptions.RequestException as e:
+        raise ValueError(f"Failed to call CalAI API: {str(e)}")
+
+def save_meal_to_supabase(meal_data, user_id):
+    """Save analyzed meal data to Supabase meals table"""
+    try:
+        # Prepare the meal data for Supabase
+        meal_record = {
+            'user_id': user_id,
+            'carbs': meal_data.get('carbs', 0),
+            'fats': meal_data.get('fats', 0),
+            'protein': meal_data.get('protein', 0),
+            'calories': meal_data.get('calories', 0),
+            'name': meal_data.get('name', 'Unknown Meal'),
+            'servings': meal_data.get('servings', 1),
+            'ingredients': json.dumps(meal_data.get('ingredients', [])),
+            'healthrating': json.dumps(meal_data.get('healthRating', {}))
+        }
+        
+        # Insert into Supabase
+        result = supabase.table('meals').insert(meal_record).execute()
+        return result.data[0] if result.data else None
+        
+    except Exception as e:
+        raise ValueError(f"Failed to save meal to database: {str(e)}")
+
+def get_daily_nutrition_summary(user_id, date=None):
+    """Get daily nutrition summary for a user"""
+    if not date:
+        date = datetime.now().date()
+    
+    try:
+        # Get meals for the specified date
+        start_date = datetime.combine(date, datetime.min.time())
+        end_date = datetime.combine(date, datetime.max.time())
+        
+        result = supabase.table('meals').select('*').eq('user_id', user_id).gte('created_at', start_date.isoformat()).lte('created_at', end_date.isoformat()).execute()
+        
+        meals = result.data if result.data else []
+        
+        # Calculate totals
+        total_calories = sum(meal.get('calories', 0) for meal in meals)
+        total_carbs = sum(meal.get('carbs', 0) for meal in meals)
+        total_fats = sum(meal.get('fats', 0) for meal in meals)
+        total_protein = sum(meal.get('protein', 0) for meal in meals)
+        
+        # Calculate macro percentages
+        total_macros = total_carbs + total_fats + total_protein
+        if total_macros > 0:
+            carb_percentage = (total_carbs * 4 / total_calories * 100) if total_calories > 0 else 0
+            fat_percentage = (total_fats * 9 / total_calories * 100) if total_calories > 0 else 0
+            protein_percentage = (total_protein * 4 / total_calories * 100) if total_calories > 0 else 0
+        else:
+            carb_percentage = fat_percentage = protein_percentage = 0
+        
+        return {
+            'date': date.isoformat(),
+            'total_meals': len(meals),
+            'total_calories': total_calories,
+            'total_carbs': total_carbs,
+            'total_fats': total_fats,
+            'total_protein': total_protein,
+            'macro_breakdown': {
+                'carbs_percentage': round(carb_percentage, 1),
+                'fats_percentage': round(fat_percentage, 1),
+                'protein_percentage': round(protein_percentage, 1)
+            },
+            'meals': meals
+        }
+        
+    except Exception as e:
+        raise ValueError(f"Failed to get nutrition summary: {str(e)}")
+
+def get_nutrition_trends(user_id, days=7):
+    """Get nutrition trends over specified days"""
+    try:
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days-1)
+        
+        trends = []
+        for i in range(days):
+            current_date = start_date + timedelta(days=i)
+            daily_summary = get_daily_nutrition_summary(user_id, current_date)
+            trends.append(daily_summary)
+        
+        return trends
+        
+    except Exception as e:
+        raise ValueError(f"Failed to get nutrition trends: {str(e)}")
+
+@app.route('/analytics/comprehensive')
+def comprehensive_analytics():
+    """Display comprehensive training analytics"""
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    if 'strava_access_token' not in session:
+        flash('Please connect your Strava account first', 'error')
+        return redirect(url_for('home'))
+    
+    try:
+        # Get time period from query parameter (default to 90 days)
+        days = request.args.get('days', 90, type=int)
+        valid_periods = [7, 14, 30, 60, 90, 180, 365]
+        
+        if days not in valid_periods:
+            days = 90  # Default fallback
+        
+        # Create Strava client
+        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        
+        # Create analytics engine
+        analytics = AdvancedAnalyticsEngine(headers)
+        
+        # Get comprehensive insights for the specified period
+        insights = analytics.get_comprehensive_insights(days=days)
+        
+        return render_template('analytics.html', insights=insights, selected_days=days, valid_periods=valid_periods)
+        
+    except Exception as e:
+        flash(f'Error generating analytics: {str(e)}', 'error')
+        return redirect(url_for('home'))
+
+@app.route('/analytics/wellness', methods=['GET', 'POST'])
+def wellness_tracking():
+    """Wellness tracking and insights"""
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    if 'strava_access_token' not in session:
+        flash('Please connect your Strava account first', 'error')
+        return redirect(url_for('home'))
+    
+    if request.method == 'POST':
+        try:
+            # Get wellness data from form
+            wellness_data = WellnessMetrics(
+                mood=int(request.form.get('mood', 3)),
+                stress=int(request.form.get('stress', 3)),
+                motivation=int(request.form.get('motivation', 3)),
+                sleep_quality=int(request.form.get('sleep_quality', 3)),
+                soreness=int(request.form.get('soreness', 3)),
+                perceived_effort=int(request.form.get('perceived_effort', 5))
+            )
+            
+            # Store in session for this analysis
+            session['wellness_data'] = {
+                'mood': wellness_data.mood,
+                'stress': wellness_data.stress,
+                'motivation': wellness_data.motivation,
+                'sleep_quality': wellness_data.sleep_quality,
+                'soreness': wellness_data.soreness,
+                'perceived_effort': wellness_data.perceived_effort
+            }
+            
+            flash('Wellness data recorded!', 'success')
+            return redirect(url_for('wellness_insights'))
+            
+        except Exception as e:
+            flash(f'Error recording wellness data: {str(e)}', 'error')
+    
+    return render_template('wellness_form.html')
+
+@app.route('/analytics/wellness-insights')
+def wellness_insights():
+    """Display wellness insights with training data"""
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    if 'strava_access_token' not in session:
+        flash('Please connect your Strava account first', 'error')
+        return redirect(url_for('home'))
+    
+    try:
+        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        analytics = AdvancedAnalyticsEngine(headers)
+        
+        # Get wellness data from session
+        wellness_dict = session.get('wellness_data', {})
+        wellness_data = WellnessMetrics(
+            mood=wellness_dict.get('mood'),
+            stress=wellness_dict.get('stress'),
+            motivation=wellness_dict.get('motivation'),
+            sleep_quality=wellness_dict.get('sleep_quality'),
+            soreness=wellness_dict.get('soreness'),
+            perceived_effort=wellness_dict.get('perceived_effort')
+        ) if wellness_dict else None
+        
+        # Get comprehensive insights with wellness data
+        insights = analytics.get_comprehensive_insights(days=30, wellness_data=wellness_data)
+        
+        return render_template('wellness_insights.html', insights=insights, wellness_data=wellness_data)
+        
+    except Exception as e:
+        flash(f'Error generating wellness insights: {str(e)}', 'error')
+        return redirect(url_for('home'))
+
+@app.route('/api/analytics/summary')
+def api_analytics_summary():
+    """API endpoint for analytics summary"""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    if 'strava_access_token' not in session:
+        return jsonify({'error': 'Strava not connected'}), 400
+    
+    try:
+        # Get time period from query parameter (default to 90 days)
+        days = request.args.get('days', 90, type=int)
+        valid_periods = [7, 14, 30, 60, 90, 180, 365]
+        
+        if days not in valid_periods:
+            days = 90  # Default fallback
+        
+        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        analytics = AdvancedAnalyticsEngine(headers)
+        
+        # Get insights for the specified period
+        insights = analytics.get_comprehensive_insights(days=days)
+        
+        # Convert to JSON-serializable format
+        summary = {
+            'training_load': {
+                'atl': insights.training_load.atl,
+                'ctl': insights.training_load.ctl,
+                'tsb': insights.training_load.tsb,
+                'acwr': insights.training_load.acwr,
+                'monotony': insights.training_load.monotony,
+                'strain': insights.training_load.strain
+            },
+            'volume_trends': insights.volume_trends,
+            'consistency': insights.consistency_metrics,
+            'terrain': insights.terrain_analysis,
+            'cadence': insights.cadence_analysis,
+            'recommendations': insights.recommendations
+        }
+        
+        return jsonify(summary)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analytics/performance-trends')
+def api_performance_trends():
+    """API endpoint for performance trends over time"""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    if 'strava_access_token' not in session:
+        return jsonify({'error': 'Strava not connected'}), 400
+    
+    try:
+        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        
+        # Get activities for last 3 months
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=90)
+        start_timestamp = int(start_date.timestamp())
+        
+        activities_url = 'https://www.strava.com/api/v3/athlete/activities'
+        response = requests.get(activities_url, headers=headers, params={
+            'after': start_timestamp,
+            'per_page': 200
+        })
+        
+        if response.status_code != 200:
+            return jsonify({'error': 'Failed to fetch activities'}), 500
+        
+        activities = response.json()
+        
+        # Process trends
+        trends = {
+            'pace_trend': [],
+            'heart_rate_trend': [],
+            'distance_trend': [],
+            'elevation_trend': []
+        }
+        
+        for activity in activities:
+            if activity.get('type') == 'Run':
+                date = activity['start_date_local'][:10]
+                
+                # Pace trend
+                if activity.get('average_speed'):
+                    pace_km_per_min = activity['average_speed'] * 3.6 / 60  # km/min
+                    trends['pace_trend'].append({
+                        'date': date,
+                        'value': round(pace_km_per_min, 2)
+                    })
+                
+                # Heart rate trend
+                if activity.get('average_heartrate'):
+                    trends['heart_rate_trend'].append({
+                        'date': date,
+                        'value': activity['average_heartrate']
+                    })
+                
+                # Distance trend
+                if activity.get('distance'):
+                    trends['distance_trend'].append({
+                        'date': date,
+                        'value': round(activity['distance'] / 1000, 2)  # km
+                    })
+                
+                # Elevation trend
+                if activity.get('total_elevation_gain'):
+                    trends['elevation_trend'].append({
+                        'date': date,
+                        'value': activity['total_elevation_gain']
+                    })
+        
+        return jsonify(trends)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/psychology/analysis')
+def psychology_analysis():
+    """Display performance psychology analysis"""
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    if 'strava_access_token' not in session:
+        flash('Please connect your Strava account first', 'error')
+        return redirect(url_for('home'))
+    
+    try:
+        # Get time period from query parameter (default to 30 days)
+        days = request.args.get('days', 30, type=int)
+        valid_periods = [7, 14, 30, 60, 90, 180]
+        
+        if days not in valid_periods:
+            days = 30  # Default fallback
+        
+        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        psychology_engine = PerformancePsychologyEngine(headers)
+        
+        # Get comprehensive psychology analysis for the specified period
+        analysis = psychology_engine.analyze_performance_psychology(days=days)
+        
+        return render_template('psychology_analysis.html', analysis=analysis, selected_days=days, valid_periods=valid_periods)
+        
+    except Exception as e:
+        flash(f'Error generating psychology analysis: {str(e)}', 'error')
+        return redirect(url_for('home'))
+
+@app.route('/psychology/wellness-submit', methods=['POST'])
+def submit_wellness_psychology():
+    """Submit wellness data for psychology analysis"""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        wellness_data = request.get_json()
+        
+        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        psychology_engine = PerformancePsychologyEngine(headers)
+        
+        success = psychology_engine.submit_wellness_data(wellness_data)
+        
+        if success:
+            return jsonify({'status': 'success', 'message': 'Wellness data submitted for psychology analysis'})
+        else:
+            return jsonify({'status': 'error', 'message': 'Failed to submit wellness data'}), 500
+            
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/psychology/performance-events')
+def api_performance_events():
+    """API endpoint for performance events that need psychological context"""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    if 'strava_access_token' not in session:
+        return jsonify({'error': 'Strava not connected'}), 400
+    
+    try:
+        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        psychology_engine = PerformancePsychologyEngine(headers)
+        
+        # Get time period from query parameter (default to 7 days)
+        days = request.args.get('days', 7, type=int)
+        valid_periods = [3, 7, 14, 30, 60]
+        
+        if days not in valid_periods:
+            days = 7  # Default fallback
+        
+        # Get recent activities and detect performance events
+        activities = psychology_engine._get_recent_activities(days=days)
+        events = psychology_engine._detect_performance_events(activities)
+        
+        # Convert events to JSON-serializable format
+        events_data = []
+        for event in events:
+            events_data.append({
+                'event_type': event.event_type,
+                'activity_id': event.activity_id,
+                'activity_name': event.activity_name,
+                'timestamp': event.timestamp.isoformat(),
+                'severity': event.severity,
+                'objective_data': event.objective_data,
+                'needs_psychological_context': True
+            })
+        
+        return jsonify({
+            'performance_events': events_data,
+            'total_events': len(events_data),
+            'analysis_period': f'{days} days'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/psychology/split-analysis/<int:activity_id>')
+def api_split_analysis(activity_id):
+    """API endpoint for detailed split analysis of a specific activity"""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    if 'strava_access_token' not in session:
+        return jsonify({'error': 'Strava not connected'}), 400
+    
+    try:
+        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        
+        # Get detailed activity data
+        response = requests.get(
+            f'https://www.strava.com/api/v3/activities/{activity_id}',
+            headers=headers
+        )
+        
+        if response.status_code != 200:
+            return jsonify({'error': 'Failed to fetch activity'}), 500
+        
+        activity = response.json()
+        
+        # Analyze splits
+        splits_analysis = {}
+        if 'splits_metric' in activity and activity['splits_metric']:
+            splits = activity['splits_metric']
+            split_times = [split['moving_time'] for split in splits]
+            
+            # Calculate split degradation
+            degradation_analysis = []
+            for i in range(2, len(split_times)):
+                early_avg = statistics.mean(split_times[:i//2])
+                current_split = split_times[i]
+                degradation_pct = ((current_split - early_avg) / early_avg) * 100
+                
+                degradation_analysis.append({
+                    'split_number': i + 1,
+                    'split_time': current_split,
+                    'degradation_pct': degradation_pct,
+                    'psychological_impact': 'high' if degradation_pct > 15 else 'moderate' if degradation_pct > 8 else 'low'
+                })
+            
+            splits_analysis = {
+                'total_splits': len(splits),
+                'average_split_time': statistics.mean(split_times),
+                'split_consistency': 1 - (statistics.stdev(split_times) / statistics.mean(split_times)) if len(split_times) > 1 else 1,
+                'degradation_analysis': degradation_analysis,
+                'significant_degradation': any(d['degradation_pct'] > 15 for d in degradation_analysis)
+            }
+        
+        return jsonify({
+            'activity_id': activity_id,
+            'activity_name': activity['name'],
+            'activity_date': activity['start_date_local'],
+            'splits_analysis': splits_analysis,
+            'psychological_questions': [
+                "How did you feel during the middle portion of this run?",
+                "Did you experience any negative thoughts when your pace slowed?",
+                "What mental strategies did you use to push through fatigue?",
+                "How was your sleep quality the night before this run?",
+                "Were you feeling stressed or motivated before starting?"
+            ] if splits_analysis.get('significant_degradation') else []
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/psychology/insights')
+def api_psychology_insights():
+    """API endpoint for performance psychology insights"""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    if 'strava_access_token' not in session:
+        return jsonify({'error': 'Strava not connected'}), 400
+    
+    try:
+        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        psychology_engine = PerformancePsychologyEngine(headers)
+        
+        # Get time period from query parameter (default to 30 days)
+        days = request.args.get('days', 30, type=int)
+        valid_periods = [7, 14, 30, 60, 90, 180]
+        
+        if days not in valid_periods:
+            days = 30  # Default fallback
+        
+        # Get psychology summary for the specified period
+        summary = psychology_engine.get_psychology_summary(days=days)
+        
+        return jsonify(summary)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/strava/disconnect')
 def strava_disconnect():
@@ -570,6 +1234,161 @@ def api_revoke_token():
             'success': False,
             'error': str(e)
         }), 500
+
+# Nutrition and Meal Tracking Routes
+@app.route('/nutrition/log-meal', methods=['GET', 'POST'])
+def log_meal():
+    """Log a meal using CalAI analysis"""
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    if request.method == 'POST':
+        try:
+            meal_description = request.form.get('meal_description', '').strip()
+            if not meal_description:
+                flash('Please provide a meal description', 'error')
+                return render_template('log_meal.html')
+            
+            # Analyze meal with CalAI
+            meal_data = analyze_meal_with_calai(meal_description)
+            
+            # Save to Supabase
+            user_id = session['user']['id']
+            saved_meal = save_meal_to_supabase(meal_data, user_id)
+            
+            if saved_meal:
+                flash('Meal logged successfully!', 'success')
+                return redirect(url_for('nutrition_dashboard'))
+            else:
+                flash('Failed to save meal', 'error')
+                
+        except Exception as e:
+            flash(f'Error logging meal: {str(e)}', 'error')
+    
+    return render_template('log_meal.html')
+
+@app.route('/nutrition/dashboard')
+def nutrition_dashboard():
+    """Display nutrition dashboard"""
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    try:
+        user_id = session['user']['id']
+        
+        # Get time period from query parameter (default to 7 days)
+        days = request.args.get('days', 7, type=int)
+        valid_periods = [1, 3, 7, 14, 30]
+        
+        if days not in valid_periods:
+            days = 7  # Default fallback
+        
+        # Get nutrition trends
+        trends = get_nutrition_trends(user_id, days)
+        
+        # Calculate averages
+        if trends:
+            avg_calories = sum(day['total_calories'] for day in trends) / len(trends)
+            avg_carbs = sum(day['total_carbs'] for day in trends) / len(trends)
+            avg_fats = sum(day['total_fats'] for day in trends) / len(trends)
+            avg_protein = sum(day['total_protein'] for day in trends) / len(trends)
+        else:
+            avg_calories = avg_carbs = avg_fats = avg_protein = 0
+        
+        return render_template('nutrition_dashboard.html', 
+                             trends=trends, 
+                             selected_days=days, 
+                             valid_periods=valid_periods,
+                             averages={
+                                 'calories': round(avg_calories, 1),
+                                 'carbs': round(avg_carbs, 1),
+                                 'fats': round(avg_fats, 1),
+                                 'protein': round(avg_protein, 1)
+                             })
+        
+    except Exception as e:
+        flash(f'Error loading nutrition dashboard: {str(e)}', 'error')
+        return redirect(url_for('home'))
+
+# API Endpoints for Nutrition
+@app.route('/api/nutrition/log-meal', methods=['POST'])
+def api_log_meal():
+    """API endpoint to log a meal"""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        data = request.get_json()
+        meal_description = data.get('meal_description', '').strip()
+        
+        if not meal_description:
+            return jsonify({'error': 'Meal description is required'}), 400
+        
+        # Analyze meal with CalAI
+        meal_data = analyze_meal_with_calai(meal_description)
+        
+        # Save to Supabase
+        user_id = session['user']['id']
+        saved_meal = save_meal_to_supabase(meal_data, user_id)
+        
+        if saved_meal:
+            return jsonify({
+                'success': True,
+                'meal': saved_meal,
+                'analysis': meal_data
+            })
+        else:
+            return jsonify({'error': 'Failed to save meal'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/nutrition/daily-summary')
+def api_daily_nutrition():
+    """API endpoint for daily nutrition summary"""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        user_id = session['user']['id']
+        date_str = request.args.get('date')
+        
+        if date_str:
+            try:
+                date = datetime.fromisoformat(date_str).date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date format'}), 400
+        else:
+            date = None
+        
+        summary = get_daily_nutrition_summary(user_id, date)
+        return jsonify(summary)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/nutrition/trends')
+def api_nutrition_trends():
+    """API endpoint for nutrition trends"""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        user_id = session['user']['id']
+        days = request.args.get('days', 7, type=int)
+        valid_periods = [1, 3, 7, 14, 30, 60, 90]
+        
+        if days not in valid_periods:
+            days = 7  # Default fallback
+        
+        trends = get_nutrition_trends(user_id, days)
+        return jsonify({
+            'trends': trends,
+            'analysis_period': f'{days} days'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     # For local development only

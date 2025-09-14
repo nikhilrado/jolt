@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+
+{% block title %}Performance Psychology Analysis - Jolt{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-brain"></i> Performance Psychology Analysis</h2>
+            <div class="d-flex align-items-center">
+                <!-- Time Period Selector -->
+                <div class="me-3">
+                    <label for="timePeriod" class="form-label me-2"><strong>Time Period:</strong></label>
+                    <select id="timePeriod" class="form-select" onchange="changeTimePeriod()">
+                        {% for period in valid_periods %}
+                        <option value="{{ period }}" {% if period == selected_days %}selected{% endif %}>
+                            {% if period == 7 %}1 Week
+                            {% elif period == 14 %}2 Weeks
+                            {% elif period == 30 %}1 Month
+                            {% elif period == 60 %}2 Months
+                            {% elif period == 90 %}3 Months
+                            {% elif period == 180 %}6 Months
+                            {% else %}{{ period }} Days
+                            {% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Home
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Analysis Summary -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-chart-pie"></i> Analysis Summary</h4>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-exclamation-triangle text-warning fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ analysis.performance_events|length }}</h5>
+                                <small class="text-muted">Performance Events</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-lightbulb text-info fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ analysis.psychological_insights|length }}</h5>
+                                <small class="text-muted">Psychological Insights</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-tasks text-success fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ analysis.recommendations|length }}</h5>
+                                <small class="text-muted">Recommendations</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-calendar text-primary fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ analysis.analysis_period }}</h5>
+                                <small class="text-muted">Analysis Period</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Performance Events -->
+{% if analysis.performance_events %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-exclamation-triangle"></i> Significant Performance Events</h4>
+                <p class="text-muted mb-0">Events that may need psychological context or analysis</p>
+            </div>
+            <div class="card-body">
+                {% for event in analysis.performance_events %}
+                <div class="alert alert-{{ 'danger' if event.severity > 0.7 else 'warning' if event.severity > 0.4 else 'info' }} mb-3">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="alert-heading">
+                                <i class="fas fa-{{ 'fire' if event.event_type == 'split_degradation' else 'chart-line' if event.event_type == 'pace_inconsistency' else 'heartbeat' if event.event_type == 'heart_rate_drift' else 'trophy' }}"></i>
+                                {{ event.event_type.replace('_', ' ').title() }}
+                            </h6>
+                            <p class="mb-1"><strong>Activity:</strong> {{ event.activity_name }}</p>
+                            <p class="mb-1"><strong>Date:</strong> {{ event.timestamp.strftime('%Y-%m-%d %H:%M') }}</p>
+                            <p class="mb-0"><strong>Severity:</strong> {{ "%.0f"|format(event.severity * 100) }}%</p>
+                        </div>
+                        <div class="text-end">
+                            <span class="badge bg-{{ 'danger' if event.severity > 0.7 else 'warning' if event.severity > 0.4 else 'info' }}">
+                                {{ "%.0f"|format(event.severity * 100) }}%
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <!-- Event Details -->
+                    <div class="mt-3">
+                        {% if event.event_type == 'split_degradation' %}
+                        <p><strong>Split Degradation:</strong> {{ "%.1f"|format(event.objective_data.degradation_pct) }}% slower in split {{ event.objective_data.split_number }}</p>
+                        <p><strong>Psychological Impact:</strong> This suggests potential mental fatigue or "hitting the wall" - consider psychological strategies.</p>
+                        {% elif event.event_type == 'pace_inconsistency' %}
+                        <p><strong>Pace Consistency:</strong> {{ "%.2f"|format(event.objective_data.consistency_score) }} (lower = more inconsistent)</p>
+                        <p><strong>Pace Variation:</strong> {{ "%.1f"|format(event.objective_data.variation_pct) }}%</p>
+                        {% elif event.event_type == 'heart_rate_drift' %}
+                        <p><strong>HR Drift:</strong> {{ "%.1f"|format(event.objective_data.drift_pct) }}% ({{ event.objective_data.fatigue_indicator }} fatigue)</p>
+                        <p><strong>Fatigue Level:</strong> {{ event.objective_data.fatigue_indicator.title() }}</p>
+                        {% elif event.event_type == 'performance_breakthrough' %}
+                        <p><strong>Breakthrough:</strong> {{ event.objective_data.effort_name }}</p>
+                        <p><strong>Time:</strong> {{ (event.objective_data.effort_time // 60)|int }}:{{ "%02d"|format(event.objective_data.effort_time % 60) }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Psychological Insights -->
+{% if analysis.psychological_insights %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-lightbulb"></i> Psychological Insights</h4>
+                <p class="text-muted mb-0">AI-generated insights about your mental performance patterns</p>
+            </div>
+            <div class="card-body">
+                {% for insight in analysis.psychological_insights %}
+                <div class="card mb-4 border-{{ 'success' if insight.confidence > 0.8 else 'warning' if insight.confidence > 0.6 else 'info' }}">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">{{ insight.title }}</h5>
+                            <span class="badge bg-{{ 'success' if insight.confidence > 0.8 else 'warning' if insight.confidence > 0.6 else 'info' }}">
+                                {{ "%.0f"|format(insight.confidence * 100) }}% Confidence
+                            </span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text">{{ insight.description }}</p>
+                        
+                        <h6><i class="fas fa-chart-bar"></i> Evidence:</h6>
+                        <ul>
+                            {% for evidence in insight.evidence %}
+                            <li>{{ evidence }}</li>
+                            {% endfor %}
+                        </ul>
+                        
+                        <h6><i class="fas fa-bullseye"></i> Recommendations:</h6>
+                        <ul>
+                            {% for recommendation in insight.recommendations %}
+                            <li>{{ recommendation }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Wellness Trends -->
+{% if analysis.wellness_trends %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-heartbeat"></i> Wellness Trends</h4>
+                <p class="text-muted mb-0">How your wellness metrics correlate with performance</p>
+            </div>
+            <div class="card-body">
+                {% for trend in analysis.wellness_trends %}
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <strong>{{ trend.metric.replace('_', ' ').title() }}</strong>
+                    </div>
+                    <div class="col-md-4">
+                        <span class="badge bg-{{ 'success' if trend.trend_direction == 'improving' else 'danger' if trend.trend_direction == 'declining' else 'secondary' }}">
+                            {{ trend.trend_direction.title() }}
+                        </span>
+                        <small class="text-muted">({{ "%.1f"|format(trend.trend_strength * 100) }}% strength)</small>
+                    </div>
+                    <div class="col-md-4">
+                        <small class="text-muted">Recent: {{ trend.recent_values[-1] if trend.recent_values else 'N/A' }}</small>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Recommendations -->
+{% if analysis.recommendations %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-tasks"></i> Performance Psychology Recommendations</h4>
+                <p class="text-muted mb-0">Actionable steps to improve your mental performance</p>
+            </div>
+            <div class="card-body">
+                {% for recommendation in analysis.recommendations %}
+                <div class="alert alert-info mb-2">
+                    {{ recommendation }}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- API Information -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-code"></i> API Endpoints for Poke Integration</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">These endpoints are available for your MCP integration:</p>
+                <ul class="list-unstyled">
+                    <li><code>GET /api/psychology/performance-events</code> - Get performance events needing psychological context</li>
+                    <li><code>GET /api/psychology/split-analysis/{activity_id}</code> - Detailed split analysis with psychological questions</li>
+                    <li><code>POST /psychology/wellness-submit</code> - Submit wellness data for psychology analysis</li>
+                    <li><code>GET /api/psychology/insights</code> - Get performance psychology insights summary</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12 text-center">
+        <p class="text-muted">
+            <i class="fas fa-brain"></i> Performance psychology analysis powered by objective data and subjective wellness
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function changeTimePeriod() {
+    const selectedDays = document.getElementById('timePeriod').value;
+    const currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.set('days', selectedDays);
+    window.location.href = currentUrl.toString();
+}
+</script>
+{% endblock %}

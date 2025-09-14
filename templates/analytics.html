@@ -1,0 +1,403 @@
+{% extends "base.html" %}
+
+{% block title %}Advanced Analytics - Jolt{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-chart-line"></i> Advanced Training Analytics</h2>
+            <div class="d-flex align-items-center">
+                <!-- Time Period Selector -->
+                <div class="me-3">
+                    <label for="timePeriod" class="form-label me-2"><strong>Time Period:</strong></label>
+                    <select id="timePeriod" class="form-select" onchange="changeTimePeriod()">
+                        {% for period in valid_periods %}
+                        <option value="{{ period }}" {% if period == selected_days %}selected{% endif %}>
+                            {% if period == 7 %}1 Week
+                            {% elif period == 14 %}2 Weeks
+                            {% elif period == 30 %}1 Month
+                            {% elif period == 60 %}2 Months
+                            {% elif period == 90 %}3 Months
+                            {% elif period == 180 %}6 Months
+                            {% elif period == 365 %}1 Year
+                            {% else %}{{ period }} Days
+                            {% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Home
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Training Load Metrics -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-dumbbell"></i> Training Load Analysis ({{ selected_days }} Days)</h4>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-2 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-fire text-danger fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.training_load.atl }}</h5>
+                                <small class="text-muted">ATL (7d)</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-chart-area text-primary fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.training_load.ctl }}</h5>
+                                <small class="text-muted">CTL (42d)</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-balance-scale text-{{ 'success' if insights.training_load.tsb > 0 else 'warning' if insights.training_load.tsb > -10 else 'danger' }} fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.training_load.tsb }}</h5>
+                                <small class="text-muted">TSB</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-percentage text-{{ 'success' if 0.8 <= insights.training_load.acwr <= 1.3 else 'warning' if insights.training_load.acwr <= 1.5 else 'danger' }} fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.training_load.acwr }}</h5>
+                                <small class="text-muted">ACWR</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-sync-alt text-info fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.training_load.monotony }}</h5>
+                                <small class="text-muted">Monotony</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-weight text-warning fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.training_load.strain }}</h5>
+                                <small class="text-muted">Strain</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Intensity Distribution -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-heartbeat"></i> Intensity Zone Distribution</h5>
+            </div>
+            <div class="card-body">
+                {% set total_time = insights.intensity_distribution.total_time %}
+                {% if total_time > 0 %}
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span>Zone 1 (Easy)</span>
+                        <span>{{ "%.1f"|format(insights.intensity_distribution.zone_1_time) }}h ({{ "%.0f"|format((insights.intensity_distribution.zone_1_time / total_time) * 100) }}%)</span>
+                    </div>
+                    <div class="progress mb-2">
+                        <div class="progress-bar bg-success" style="width: {{ (insights.intensity_distribution.zone_1_time / total_time) * 100 }}%"></div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span>Zone 2 (Aerobic)</span>
+                        <span>{{ "%.1f"|format(insights.intensity_distribution.zone_2_time) }}h ({{ "%.0f"|format((insights.intensity_distribution.zone_2_time / total_time) * 100) }}%)</span>
+                    </div>
+                    <div class="progress mb-2">
+                        <div class="progress-bar bg-info" style="width: {{ (insights.intensity_distribution.zone_2_time / total_time) * 100 }}%"></div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span>Zone 3 (Tempo)</span>
+                        <span>{{ "%.1f"|format(insights.intensity_distribution.zone_3_time) }}h ({{ "%.0f"|format((insights.intensity_distribution.zone_3_time / total_time) * 100) }}%)</span>
+                    </div>
+                    <div class="progress mb-2">
+                        <div class="progress-bar bg-warning" style="width: {{ (insights.intensity_distribution.zone_3_time / total_time) * 100 }}%"></div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span>Zone 4 (Threshold)</span>
+                        <span>{{ "%.1f"|format(insights.intensity_distribution.zone_4_time) }}h ({{ "%.0f"|format((insights.intensity_distribution.zone_4_time / total_time) * 100) }}%)</span>
+                    </div>
+                    <div class="progress mb-2">
+                        <div class="progress-bar bg-danger" style="width: {{ (insights.intensity_distribution.zone_4_time / total_time) * 100 }}%"></div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span>Zone 5 (VO2 Max)</span>
+                        <span>{{ "%.1f"|format(insights.intensity_distribution.zone_5_time) }}h ({{ "%.0f"|format((insights.intensity_distribution.zone_5_time / total_time) * 100) }}%)</span>
+                    </div>
+                    <div class="progress mb-2">
+                        <div class="progress-bar bg-dark" style="width: {{ (insights.intensity_distribution.zone_5_time / total_time) * 100 }}%"></div>
+                    </div>
+                </div>
+                {% else %}
+                <p class="text-muted">No intensity zone data available</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-chart-bar"></i> Performance Metrics</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <div class="stat-item text-center">
+                            <i class="fas fa-route text-primary fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ "%.1f"|format(insights.volume_trends.total_distance_km) }} km</h6>
+                                <small class="text-muted">Total Distance</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="stat-item text-center">
+                            <i class="fas fa-clock text-success fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ "%.1f"|format(insights.volume_trends.total_time_hours) }}h</h6>
+                                <small class="text-muted">Total Time</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="stat-item text-center">
+                            <i class="fas fa-calendar-week text-info fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ "%.1f"|format(insights.volume_trends.avg_sessions_per_week) }}</h6>
+                                <small class="text-muted">Sessions/Week</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="stat-item text-center">
+                            <i class="fas fa-trending-up text-warning fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ insights.volume_trends.distance_trend_pct }}%</h6>
+                                <small class="text-muted">Volume Trend</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Consistency & Terrain Analysis -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-calendar-check"></i> Training Consistency</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-chart-line text-primary fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ insights.consistency_metrics.consistency_score }}/100</h6>
+                                <small class="text-muted">Consistency Score</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-fire text-danger fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ insights.consistency_metrics.current_streak }}</h6>
+                                <small class="text-muted">Current Streak</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-trophy text-warning fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ insights.consistency_metrics.longest_streak }}</h6>
+                                <small class="text-muted">Best Streak</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-clock text-info fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ insights.consistency_metrics.avg_gap_days }}</h6>
+                                <small class="text-muted">Avg Gap (days)</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-mountain"></i> Terrain Analysis</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-chart-area text-primary fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ insights.terrain_analysis.avg_elevation_per_km }}m</h6>
+                                <small class="text-muted">Elevation/km</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-percentage text-success fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ insights.terrain_analysis.terrain_variety_score }}/100</h6>
+                                <small class="text-muted">Variety Score</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-road text-info fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ insights.terrain_analysis.flat_runs_pct }}%</h6>
+                                <small class="text-muted">Flat Runs</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-mountain text-warning fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ insights.terrain_analysis.hilly_runs_pct }}%</h6>
+                                <small class="text-muted">Hilly Runs</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cadence Analysis -->
+{% if insights.cadence_analysis.avg_cadence %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-shoe-prints"></i> Cadence Analysis</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-tachometer-alt text-primary fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ insights.cadence_analysis.avg_cadence }} spm</h6>
+                                <small class="text-muted">Average Cadence</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-chart-line text-success fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ insights.cadence_analysis.cadence_consistency }}/100</h6>
+                                <small class="text-muted">Consistency</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-trending-up text-warning fa-2x"></i>
+                            <div class="mt-2">
+                                <h6>{{ insights.cadence_analysis.cadence_trend > 0 and '+' or '' }}{{ insights.cadence_analysis.cadence_trend }}</h6>
+                                <small class="text-muted">Trend (spm)</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Recommendations -->
+{% if insights.recommendations %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-lightbulb"></i> AI Training Recommendations</h4>
+            </div>
+            <div class="card-body">
+                {% for recommendation in insights.recommendations %}
+                <div class="alert alert-info mb-2">
+                    {{ recommendation }}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="row mt-4">
+    <div class="col-12 text-center">
+        <p class="text-muted">
+            <i class="fas fa-brain"></i> Advanced analytics powered by sports science metrics
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function changeTimePeriod() {
+    const selectedDays = document.getElementById('timePeriod').value;
+    const currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.set('days', selectedDays);
+    window.location.href = currentUrl.toString();
+}
+</script>
+{% endblock %}

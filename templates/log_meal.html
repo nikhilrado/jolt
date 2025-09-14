@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Log Meal - Jolt{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-utensils"></i> Log Meal</h2>
+            <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Home
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-robot"></i> AI-Powered Meal Analysis</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="meal_description" class="form-label">
+                            <strong>Describe your meal:</strong>
+                        </label>
+                        <textarea 
+                            class="form-control" 
+                            id="meal_description" 
+                            name="meal_description" 
+                            rows="4" 
+                            placeholder="e.g., Grilled chicken breast with brown rice and steamed broccoli, 1 cup serving"
+                            required
+                        ></textarea>
+                        <div class="form-text">
+                            Be as specific as possible! Include portion sizes, cooking methods, and ingredients for the most accurate analysis.
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-success btn-lg">
+                            <i class="fas fa-magic"></i> Analyze & Log Meal
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-lightbulb"></i> Tips for Better Analysis</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled">
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i> Include portion sizes (cups, ounces, pieces)
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i> Mention cooking methods (grilled, fried, steamed)
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i> List all ingredients and toppings
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i> Include beverages and sides
+                    </li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5><i class="fas fa-info-circle"></i> What You'll Get</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled">
+                    <li class="mb-2">
+                        <i class="fas fa-chart-pie text-primary"></i> Complete macro breakdown
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-fire text-danger"></i> Accurate calorie count
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-heart text-success"></i> Health rating & tips
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-list text-info"></i> Detailed ingredient analysis
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-history"></i> Recent Meals</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">
+                    <i class="fas fa-info-circle"></i> 
+                    View your recent meals and nutrition trends on the 
+                    <a href="{{ url_for('nutrition_dashboard') }}">Nutrition Dashboard</a>.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -183,3 +183,127 @@ footer {
 ::-webkit-scrollbar-thumb:hover {
     background: #a8a8a8;
 }
+
+/* Enhanced Activities Page Styles */
+.stat-item {
+    padding: 1rem 0.5rem;
+    border-radius: 0.5rem;
+    background-color: #f8f9fa;
+    margin-bottom: 0.5rem;
+    transition: all 0.2s ease-in-out;
+}
+
+.stat-item:hover {
+    background-color: #e9ecef;
+    transform: translateY(-1px);
+}
+
+.stat-item i {
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+.stat-item h6 {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.table-responsive {
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.table-sm th,
+.table-sm td {
+    padding: 0.5rem;
+    border-top: 1px solid #dee2e6;
+}
+
+.table-sm thead th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    border-bottom: 2px solid #dee2e6;
+}
+
+/* Heart rate zone colors */
+.hr-zone-1 { color: #28a745; }
+.hr-zone-2 { color: #ffc107; }
+.hr-zone-3 { color: #fd7e14; }
+.hr-zone-4 { color: #dc3545; }
+.hr-zone-5 { color: #6f42c1; }
+
+/* Activity type specific colors */
+.activity-run { border-left: 4px solid #28a745; }
+.activity-ride { border-left: 4px solid #007bff; }
+.activity-swim { border-left: 4px solid #17a2b8; }
+.activity-other { border-left: 4px solid #6c757d; }
+
+/* Enhanced card styling for activities */
+.activity-card {
+    border-left: 4px solid var(--jolt-primary);
+    transition: all 0.3s ease-in-out;
+}
+
+.activity-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.2);
+}
+
+/* Metrics grid improvements */
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1rem;
+    margin: 1rem 0;
+}
+
+.metric-item {
+    text-align: center;
+    padding: 1rem;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 0.5rem;
+    transition: all 0.2s ease-in-out;
+}
+
+.metric-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.1);
+}
+
+.metric-item i {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.metric-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+}
+
+.metric-label {
+    font-size: 0.75rem;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Responsive improvements for activities */
+@media (max-width: 768px) {
+    .stat-item {
+        padding: 0.75rem 0.25rem;
+    }
+    
+    .metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.5rem;
+    }
+    
+    .metric-item {
+        padding: 0.75rem 0.5rem;
+    }
+    
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+}

@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block title %}Nutrition Dashboard - Jolt{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-chart-pie"></i> Nutrition Dashboard</h2>
+            <div class="d-flex align-items-center">
+                <!-- Time Period Selector -->
+                <div class="me-3">
+                    <label for="timePeriod" class="form-label me-2"><strong>Time Period:</strong></label>
+                    <select id="timePeriod" class="form-select" onchange="changeTimePeriod()">
+                        {% for period in valid_periods %}
+                        <option value="{{ period }}" {% if period == selected_days %}selected{% endif %}>
+                            {% if period == 1 %}Today
+                            {% elif period == 3 %}3 Days
+                            {% elif period == 7 %}1 Week
+                            {% elif period == 14 %}2 Weeks
+                            {% elif period == 30 %}1 Month
+                            {% else %}{{ period }} Days
+                            {% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <a href="{{ url_for('log_meal') }}" class="btn btn-success me-2">
+                    <i class="fas fa-plus"></i> Log Meal
+                </a>
+                <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Home
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Average Nutrition Summary -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-chart-bar"></i> Average Daily Nutrition ({{ selected_days }} Days)</h4>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-fire text-danger fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ averages.calories }}</h5>
+                                <small class="text-muted">Calories</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-bread-slice text-warning fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ averages.carbs }}g</h5>
+                                <small class="text-muted">Carbs</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-drumstick-bite text-success fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ averages.protein }}g</h5>
+                                <small class="text-muted">Protein</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-seedling text-info fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ averages.fats }}g</h5>
+                                <small class="text-muted">Fats</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Daily Breakdown -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-calendar-day"></i> Daily Breakdown</h4>
+            </div>
+            <div class="card-body">
+                {% if trends %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Meals</th>
+                                    <th>Calories</th>
+                                    <th>Carbs (g)</th>
+                                    <th>Protein (g)</th>
+                                    <th>Fats (g)</th>
+                                    <th>Macro Split</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for day in trends %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ day.date }}</strong>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-primary">{{ day.total_meals }}</span>
+                                    </td>
+                                    <td>
+                                        <span class="text-danger fw-bold">{{ day.total_calories }}</span>
+                                    </td>
+                                    <td>{{ day.total_carbs }}</td>
+                                    <td>{{ day.total_protein }}</td>
+                                    <td>{{ day.total_fats }}</td>
+                                    <td>
+                                        <div class="progress" style="height: 20px;">
+                                            <div class="progress-bar bg-warning" style="width: {{ day.macro_breakdown.carbs_percentage }}%">
+                                                {{ day.macro_breakdown.carbs_percentage }}%
+                                            </div>
+                                            <div class="progress-bar bg-success" style="width: {{ day.macro_breakdown.protein_percentage }}%">
+                                                {{ day.macro_breakdown.protein_percentage }}%
+                                            </div>
+                                            <div class="progress-bar bg-info" style="width: {{ day.macro_breakdown.fats_percentage }}%">
+                                                {{ day.macro_breakdown.fats_percentage }}%
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-utensils fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">No meals logged yet</h5>
+                        <p class="text-muted">Start tracking your nutrition by logging your first meal!</p>
+                        <a href="{{ url_for('log_meal') }}" class="btn btn-success">
+                            <i class="fas fa-plus"></i> Log Your First Meal
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Meals Detail -->
+{% if trends and trends[-1].meals %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-clock"></i> Recent Meals</h4>
+            </div>
+            <div class="card-body">
+                {% for meal in trends[-1].meals[:5] %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-md-4">
+                                <h6 class="mb-1">{{ meal.name }}</h6>
+                                <small class="text-muted">{{ meal.created_at[:10] }}</small>
+                            </div>
+                            <div class="col-md-2 text-center">
+                                <span class="badge bg-danger fs-6">{{ meal.calories }} cal</span>
+                            </div>
+                            <div class="col-md-2 text-center">
+                                <small class="text-muted">Carbs: {{ meal.carbs }}g</small>
+                            </div>
+                            <div class="col-md-2 text-center">
+                                <small class="text-muted">Protein: {{ meal.protein }}g</small>
+                            </div>
+                            <div class="col-md-2 text-center">
+                                <small class="text-muted">Fats: {{ meal.fats }}g</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="row mt-4">
+    <div class="col-12 text-center">
+        <p class="text-muted">
+            <i class="fas fa-robot"></i> Nutrition analysis powered by CalAI
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function changeTimePeriod() {
+    const selectedDays = document.getElementById('timePeriod').value;
+    const currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.set('days', selectedDays);
+    window.location.href = currentUrl.toString();
+}
+</script>
+{% endblock %}
