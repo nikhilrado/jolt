@@ -7,6 +7,9 @@ import json
 import statistics
 from analytics_engine import AdvancedAnalyticsEngine, WellnessMetrics, TrainingInsights
 from performance_psychology import PerformancePsychologyEngine
+from strava_token_manager import StravaTokenManager
+from strava_activity_monitor import StravaActivityMonitor
+from strava_scheduler import StravaActivityScheduler
 import hashlib
 import secrets
 from functools import wraps
@@ -30,6 +33,10 @@ SUPABASE_SERVICE_KEY = os.getenv('SUPABASE_SERVICE_KEY')
 # Initialize supabase client only if credentials are provided
 supabase = None
 supabase_admin = None
+strava_token_manager = None
+strava_activity_monitor = None
+strava_scheduler = None
+
 if SUPABASE_URL and SUPABASE_KEY:
     try:
         supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -38,6 +45,13 @@ if SUPABASE_URL and SUPABASE_KEY:
             supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
         else:
             supabase_admin = supabase  # Fallback to regular client
+        
+        # Initialize Strava managers
+        strava_token_manager = StravaTokenManager(supabase, supabase_admin)
+        strava_activity_monitor = StravaActivityMonitor(supabase, supabase_admin)
+        
+        # Note: Scheduler will be initialized after app is fully configured
+        
     except Exception as e:
         print(f"Warning: Failed to initialize Supabase client: {e}")
         print("Please check your SUPABASE_URL and SUPABASE_KEY in .env file")
@@ -115,6 +129,14 @@ def require_api_auth(f):
             return jsonify({'error': 'Token validation failed'}), 401
     
     return decorated_function
+
+def get_user_strava_token(user_id):
+    """Helper function to get valid Strava access token for a user"""
+    if not strava_token_manager:
+        return None
+    
+    access_token = strava_token_manager.get_valid_access_token(user_id)
+    return access_token
 
 @app.route('/')
 def index():
@@ -213,7 +235,8 @@ def logout():
 def home():
     """Home page - requires authentication"""
     # Check if user has connected Strava
-    strava_connected = 'strava_access_token' in session
+    user_id = session['user']['id']
+    strava_connected = strava_token_manager.is_connected(user_id) if strava_token_manager else False
     
     return render_template('home.html', 
                          user=session['user'], 
@@ -229,14 +252,19 @@ def strava_connect():
         flash('Strava client ID not configured', 'error')
         return redirect(url_for('home'))
     
-    # Build Strava OAuth URL
+    # Generate a state parameter for security (CSRF protection)
+    state = secrets.token_urlsafe(32)
+    session['strava_oauth_state'] = state
+    
+    # Build Strava OAuth URL following best practices
     strava_auth_url = (
         f"https://www.strava.com/oauth/authorize?"
         f"client_id={STRAVA_CLIENT_ID}&"
         f"response_type=code&"
         f"redirect_uri={STRAVA_REDIRECT_URI}&"
-        f"approval_prompt=force&"
-        f"scope=read,activity:read_all"
+        f"approval_prompt=auto&"  # Use 'auto' instead of 'force' for better UX
+        f"scope=read,activity:read_all&"  # Request minimal required scopes
+        f"state={state}"  # Add state for CSRF protection
     )
     
     return redirect(strava_auth_url)
@@ -248,9 +276,25 @@ def strava_callback():
         return redirect(url_for('login'))
     
     code = request.args.get('code')
-    if not code:
-        flash('Strava authorization failed', 'error')
+    state = request.args.get('state')
+    error = request.args.get('error')
+    
+    # Check for authorization errors
+    if error:
+        flash(f'Strava authorization error: {error}', 'error')
         return redirect(url_for('home'))
+    
+    if not code:
+        flash('Strava authorization failed - no code received', 'error')
+        return redirect(url_for('home'))
+    
+    # Verify state parameter for CSRF protection
+    if not state or state != session.get('strava_oauth_state'):
+        flash('Strava authorization failed - invalid state parameter', 'error')
+        return redirect(url_for('home'))
+    
+    # Clear the state from session
+    session.pop('strava_oauth_state', None)
     
     try:
         # Exchange code for access token
@@ -265,15 +309,62 @@ def strava_callback():
         response = requests.post(token_url, data=token_data)
         token_response = response.json()
         
-        if 'access_token' in token_response:
-            session['strava_access_token'] = token_response['access_token']
-            session['strava_athlete'] = token_response['athlete']
-            flash('Strava connected successfully!', 'success')
+        if response.status_code == 200 and 'access_token' in token_response:
+            # Store credentials in database instead of session
+            user_id = session['user']['id']
+            if strava_token_manager and strava_token_manager.store_credentials(user_id, token_response):
+                # Check what scopes were actually granted
+                granted_scopes = token_response.get('scope', '').split(',')
+                required_scopes = ['read', 'activity:read_all']
+                
+                missing_scopes = [scope for scope in required_scopes if scope not in granted_scopes]
+                if missing_scopes:
+                    flash(f'Warning: Some permissions were not granted: {", ".join(missing_scopes)}', 'warning')
+                
+                flash('Strava connected successfully!', 'success')
+            else:
+                flash('Failed to store Strava credentials', 'error')
         else:
-            flash('Failed to connect to Strava', 'error')
+            error_description = token_response.get('message', 'Unknown error')
+            flash(f'Failed to connect to Strava: {error_description}', 'error')
             
     except Exception as e:
         flash(f'Strava connection error: {str(e)}', 'error')
+    
+    return redirect(url_for('home'))
+
+@app.route('/strava/disconnect', methods=['POST'])
+@require_auth
+def strava_disconnect():
+    """Disconnect Strava account"""
+    if not strava_token_manager:
+        flash('Strava token manager not available', 'error')
+        return redirect(url_for('home'))
+    
+    user_id = session['user']['id']
+    
+    try:
+        # Get current access token
+        access_token = strava_token_manager.get_valid_access_token(user_id)
+        
+        if access_token:
+            # Deauthorize on Strava's side
+            deauth_url = "https://www.strava.com/oauth/deauthorize"
+            deauth_data = {'access_token': access_token}
+            
+            response = requests.post(deauth_url, data=deauth_data)
+            
+            if response.status_code != 200:
+                print(f"Failed to deauthorize on Strava: {response.status_code} - {response.text}")
+        
+        # Invalidate credentials in our database regardless of Strava's response
+        if strava_token_manager.invalidate_credentials(user_id):
+            flash('Strava account disconnected successfully', 'success')
+        else:
+            flash('Failed to disconnect Strava account', 'error')
+            
+    except Exception as e:
+        flash(f'Error disconnecting Strava: {str(e)}', 'error')
     
     return redirect(url_for('home'))
 
@@ -283,12 +374,19 @@ def strava_activities():
     if 'user' not in session:
         return jsonify({'error': 'User not authenticated'}), 401
     
-    if 'strava_access_token' not in session:
+    user_id = session['user']['id']
+    if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava account not connected'}), 400
     
     try:
+        # Get valid access token
+        access_token = strava_token_manager.get_valid_access_token(user_id)
+        if not access_token:
+            flash('Strava connection expired. Please reconnect your account.', 'error')
+            return redirect(url_for('home'))
+        
         # Fetch activities from Strava
-        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        headers = {'Authorization': f'Bearer {access_token}'}
         activities_url = 'https://www.strava.com/api/v3/athlete/activities'
         
         response = requests.get(activities_url, headers=headers, params={'per_page': 20})
@@ -785,7 +883,8 @@ def comprehensive_analytics():
     if 'user' not in session:
         return jsonify({'error': 'User not authenticated'}), 401
     
-    if 'strava_access_token' not in session:
+    user_id = session['user']['id']
+    if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava account not connected'}), 400
     
     try:
@@ -797,7 +896,12 @@ def comprehensive_analytics():
             days = 90  # Default fallback
         
         # Create Strava client
-        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        access_token = get_user_strava_token(user_id)
+        if not access_token:
+            flash('Strava connection expired. Please reconnect your account.', 'error')
+            return redirect(url_for('home'))
+        
+        headers = {'Authorization': f'Bearer {access_token}'}
         
         # Create analytics engine
         analytics = AdvancedAnalyticsEngine(headers)
@@ -832,7 +936,8 @@ def wellness_tracking():
     if 'user' not in session:
         return redirect(url_for('login'))
     
-    if 'strava_access_token' not in session:
+    user_id = session['user']['id']
+    if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         flash('Please connect your Strava account first', 'error')
         return redirect(url_for('home'))
     
@@ -872,12 +977,18 @@ def wellness_insights():
     if 'user' not in session:
         return redirect(url_for('login'))
     
-    if 'strava_access_token' not in session:
+    user_id = session['user']['id']
+    if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         flash('Please connect your Strava account first', 'error')
         return redirect(url_for('home'))
     
     try:
-        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        access_token = get_user_strava_token(user_id)
+        if not access_token:
+            flash('Strava connection expired. Please reconnect your account.', 'error')
+            return redirect(url_for('home'))
+        
+        headers = {'Authorization': f'Bearer {access_token}'}
         analytics = AdvancedAnalyticsEngine(headers)
         
         # Get wellness data from session
@@ -906,7 +1017,8 @@ def api_analytics_summary():
     if 'user' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
     
-    if 'strava_access_token' not in session:
+    user_id = session['user']['id']
+    if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava not connected'}), 400
     
     try:
@@ -917,7 +1029,12 @@ def api_analytics_summary():
         if days not in valid_periods:
             days = 90  # Default fallback
         
-        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        access_token = get_user_strava_token(user_id)
+        if not access_token:
+            flash('Strava connection expired. Please reconnect your account.', 'error')
+            return redirect(url_for('home'))
+        
+        headers = {'Authorization': f'Bearer {access_token}'}
         analytics = AdvancedAnalyticsEngine(headers)
         
         # Get insights for the specified period
@@ -951,11 +1068,17 @@ def api_performance_trends():
     if 'user' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
     
-    if 'strava_access_token' not in session:
+    user_id = session['user']['id']
+    if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava not connected'}), 400
     
     try:
-        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        access_token = get_user_strava_token(user_id)
+        if not access_token:
+            flash('Strava connection expired. Please reconnect your account.', 'error')
+            return redirect(url_for('home'))
+        
+        headers = {'Authorization': f'Bearer {access_token}'}
         
         # Get activities for last 3 months
         end_date = datetime.now()
@@ -1025,7 +1148,8 @@ def psychology_analysis():
     if 'user' not in session:
         return jsonify({'error': 'User not authenticated'}), 401
     
-    if 'strava_access_token' not in session:
+    user_id = session['user']['id']
+    if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava account not connected'}), 400
     
     try:
@@ -1036,7 +1160,12 @@ def psychology_analysis():
         if days not in valid_periods:
             days = 30  # Default fallback
         
-        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        access_token = get_user_strava_token(user_id)
+        if not access_token:
+            flash('Strava connection expired. Please reconnect your account.', 'error')
+            return redirect(url_for('home'))
+        
+        headers = {'Authorization': f'Bearer {access_token}'}
         psychology_engine = PerformancePsychologyEngine(headers)
         
         # Get comprehensive psychology analysis for the specified period
@@ -1067,7 +1196,12 @@ def submit_wellness_psychology():
     try:
         wellness_data = request.get_json()
         
-        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        access_token = get_user_strava_token(user_id)
+        if not access_token:
+            flash('Strava connection expired. Please reconnect your account.', 'error')
+            return redirect(url_for('home'))
+        
+        headers = {'Authorization': f'Bearer {access_token}'}
         psychology_engine = PerformancePsychologyEngine(headers)
         
         success = psychology_engine.submit_wellness_data(wellness_data)
@@ -1086,11 +1220,17 @@ def api_performance_events():
     if 'user' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
     
-    if 'strava_access_token' not in session:
+    user_id = session['user']['id']
+    if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava not connected'}), 400
     
     try:
-        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        access_token = get_user_strava_token(user_id)
+        if not access_token:
+            flash('Strava connection expired. Please reconnect your account.', 'error')
+            return redirect(url_for('home'))
+        
+        headers = {'Authorization': f'Bearer {access_token}'}
         psychology_engine = PerformancePsychologyEngine(headers)
         
         # Get time period from query parameter (default to 7 days)
@@ -1132,11 +1272,17 @@ def api_split_analysis(activity_id):
     if 'user' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
     
-    if 'strava_access_token' not in session:
+    user_id = session['user']['id']
+    if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava not connected'}), 400
     
     try:
-        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        access_token = get_user_strava_token(user_id)
+        if not access_token:
+            flash('Strava connection expired. Please reconnect your account.', 'error')
+            return redirect(url_for('home'))
+        
+        headers = {'Authorization': f'Bearer {access_token}'}
         
         # Get detailed activity data
         response = requests.get(
@@ -1200,11 +1346,17 @@ def api_psychology_insights():
     if 'user' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
     
-    if 'strava_access_token' not in session:
+    user_id = session['user']['id']
+    if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava not connected'}), 400
     
     try:
-        headers = {'Authorization': f'Bearer {session["strava_access_token"]}'}
+        access_token = get_user_strava_token(user_id)
+        if not access_token:
+            flash('Strava connection expired. Please reconnect your account.', 'error')
+            return redirect(url_for('home'))
+        
+        headers = {'Authorization': f'Bearer {access_token}'}
         psychology_engine = PerformancePsychologyEngine(headers)
         
         # Get time period from query parameter (default to 30 days)
@@ -1221,19 +1373,6 @@ def api_psychology_insights():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-@app.route('/strava/disconnect')
-def strava_disconnect():
-    """Disconnect Strava account"""
-    if 'user' not in session:
-        return redirect(url_for('login'))
-    
-    # Remove Strava data from session
-    session.pop('strava_access_token', None)
-    session.pop('strava_athlete', None)
-    
-    flash('Strava account disconnected', 'success')
-    return redirect(url_for('home'))
 
 # Personal Access Token Management Routes
 @app.route('/api-token')
@@ -1939,6 +2078,255 @@ def mcp_get_health_recommendations():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# ============================================================================
+# CRON JOB ENDPOINTS FOR STRAVA ACTIVITY MONITORING
+# ============================================================================
+
+@app.route('/cron/check-activities', methods=['POST'])
+@require_api_auth
+def cron_check_activities():
+    """
+    Cron job endpoint to check for new Strava activities across all users.
+    This should be called every 15 minutes by an external cron service.
+    Requires API token authentication.
+    """
+    if not strava_activity_monitor:
+        return jsonify({'error': 'Strava activity monitor not initialized'}), 500
+    
+    try:
+        # Check for new activities across all users
+        notifications = strava_activity_monitor.check_all_users()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Checked activities for all users',
+            'new_activities_found': len(notifications),
+            'notifications': [
+                {
+                    'user_id': n['user_id'],
+                    'activity_id': n['activity_id'],
+                    'activity_type': n['activity_type'],
+                    'activity_name': n['activity_name'],
+                    'message': n['message']
+                } for n in notifications
+            ]
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to check activities: {str(e)}'}), 500
+
+@app.route('/cron/send-notifications', methods=['POST'])
+@require_api_auth
+def cron_send_notifications():
+    """
+    Send pending activity notifications.
+    This endpoint can be used to process and send notifications
+    for activities that were detected but not yet notified.
+    """
+    if not strava_activity_monitor:
+        return jsonify({'error': 'Strava activity monitor not initialized'}), 500
+    
+    try:
+        # Get all pending notifications
+        pending_notifications = strava_activity_monitor.get_pending_notifications()
+        
+        sent_count = 0
+        for notification in pending_notifications:
+            # Here you would implement your notification logic
+            # For example: send email, push notification, webhook, etc.
+            
+            # For now, we'll just mark them as sent
+            # You can extend this to actually send notifications
+            if strava_activity_monitor.mark_notification_sent(notification['id']):
+                sent_count += 1
+                print(f"Notification sent for activity {notification['strava_activity_id']}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Processed {len(pending_notifications)} notifications',
+            'sent_count': sent_count
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to send notifications: {str(e)}'}), 500
+
+@app.route('/api/strava/status', methods=['GET'])
+@require_api_auth
+def api_strava_status():
+    """
+    Get Strava connection status across all users.
+    Useful for monitoring and debugging.
+    """
+    if not strava_token_manager:
+        return jsonify({'error': 'Strava token manager not initialized'}), 500
+    
+    try:
+        active_users = strava_token_manager.get_all_active_users()
+        
+        return jsonify({
+            'success': True,
+            'total_connected_users': len(active_users),
+            'users': [
+                {
+                    'user_id': user['user_id'],
+                    'athlete_id': user['athlete_id'],
+                    'last_activity_check': user.get('last_activity_check'),
+                    'last_activity_id': user.get('last_activity_id')
+                } for user in active_users
+            ]
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to get status: {str(e)}'}), 500
+
+@app.route('/api/user/strava/notifications', methods=['GET'])
+@require_auth
+def get_user_notifications():
+    """
+    Get activity notifications for the current user.
+    """
+    if not strava_activity_monitor:
+        return jsonify({'error': 'Strava activity monitor not initialized'}), 500
+    
+    user_id = session['user']['id']
+    
+    try:
+        # Get all notifications for this user (both sent and unsent)
+        all_notifications = strava_activity_monitor.get_pending_notifications(user_id)
+        
+        # Also get sent notifications from the last 7 days
+        # (you might want to modify get_pending_notifications to include sent ones)
+        
+        return jsonify({
+            'success': True,
+            'notifications': [
+                {
+                    'id': n['id'],
+                    'activity_id': n['strava_activity_id'],
+                    'activity_type': n['activity_type'],
+                    'activity_name': n['activity_name'],
+                    'notification_sent': n['notification_sent'],
+                    'created_at': n['created_at']
+                } for n in all_notifications
+            ]
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to get notifications: {str(e)}'}), 500
+
+# ============================================================================
+# SCHEDULER MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@app.route('/admin/scheduler/status', methods=['GET'])
+@require_api_auth
+def scheduler_status():
+    """Get status of all scheduled jobs"""
+    if not strava_scheduler:
+        return jsonify({'error': 'Scheduler not initialized'}), 500
+    
+    try:
+        jobs = strava_scheduler.get_job_status()
+        return jsonify({
+            'success': True,
+            'scheduler_running': strava_scheduler.scheduler.running,
+            'jobs': jobs
+        })
+    except Exception as e:
+        return jsonify({'error': f'Failed to get scheduler status: {str(e)}'}), 500
+
+@app.route('/admin/scheduler/start', methods=['POST'])
+@require_api_auth
+def start_scheduler():
+    """Start the Strava activity monitoring scheduler"""
+    if not strava_scheduler:
+        return jsonify({'error': 'Scheduler not initialized'}), 500
+    
+    try:
+        if strava_scheduler.start_monitoring():
+            return jsonify({
+                'success': True,
+                'message': 'Scheduler started successfully'
+            })
+        else:
+            return jsonify({'error': 'Failed to start scheduler'}), 500
+    except Exception as e:
+        return jsonify({'error': f'Failed to start scheduler: {str(e)}'}), 500
+
+@app.route('/admin/scheduler/stop', methods=['POST'])
+@require_api_auth
+def stop_scheduler():
+    """Stop the Strava activity monitoring scheduler"""
+    if not strava_scheduler:
+        return jsonify({'error': 'Scheduler not initialized'}), 500
+    
+    try:
+        if strava_scheduler.stop_monitoring():
+            return jsonify({
+                'success': True,
+                'message': 'Scheduler stopped successfully'
+            })
+        else:
+            return jsonify({'error': 'Failed to stop scheduler'}), 500
+    except Exception as e:
+        return jsonify({'error': f'Failed to stop scheduler: {str(e)}'}), 500
+
+@app.route('/admin/scheduler/trigger/<job_id>', methods=['POST'])
+@require_api_auth
+def trigger_job(job_id):
+    """Manually trigger a specific scheduled job"""
+    if not strava_scheduler:
+        return jsonify({'error': 'Scheduler not initialized'}), 500
+    
+    try:
+        if strava_scheduler.trigger_job_manually(job_id):
+            return jsonify({
+                'success': True,
+                'message': f'Job {job_id} triggered successfully'
+            })
+        else:
+            return jsonify({'error': f'Failed to trigger job {job_id}'}), 500
+    except Exception as e:
+        return jsonify({'error': f'Failed to trigger job: {str(e)}'}), 500
+
+@app.route('/admin/scheduler')
+@require_auth
+def scheduler_admin():
+    """Scheduler administration interface"""
+    # For demo purposes, we'll pass a placeholder token
+    # In production, you might want to generate a specific admin token
+    # or require additional authentication
+    user_id = session['user']['id']
+    
+    # Get user's API token for admin interface
+    try:
+        result = supabase.table('personal_access_tokens').select('id').eq(
+            'user_id', user_id
+        ).eq('is_active', True).single().execute()
+        
+        if result.data:
+            # User has a token - they can use the admin interface
+            return render_template('scheduler_admin.html', 
+                                 user=session['user'],
+                                 has_api_token=True)
+        else:
+            # User needs to generate an API token first
+            flash('Please generate an API token first to access the scheduler admin.', 'warning')
+            return redirect(url_for('api_token'))
+            
+    except Exception as e:
+        flash('Error checking API token. Please try again.', 'error')
+        return redirect(url_for('home'))
+
+# Initialize scheduler after app is fully configured
+if strava_activity_monitor and not strava_scheduler:
+    try:
+        strava_scheduler = StravaActivityScheduler(app, strava_activity_monitor)
+        print("✅ Strava scheduler initialized successfully")
+    except Exception as e:
+        print(f"Warning: Failed to initialize Strava scheduler: {e}")
+        strava_scheduler = None
+
 if __name__ == '__main__':
     # Debug: Check if CalorieNinjas API key is loaded
     print(f"DEBUG: CalorieNinjas API Key loaded: {'Yes' if CALORIE_NINJAS_API_KEY else 'No'}")
@@ -1946,6 +2334,14 @@ if __name__ == '__main__':
         print(f"DEBUG: API Key starts with: {CALORIE_NINJAS_API_KEY[:10]}...")
     else:
         print("WARNING: CalorieNinjas API key not found in environment variables")
+    
+    # Start the Strava scheduler if enabled
+    if strava_scheduler:
+        print("Starting Strava activity monitoring scheduler...")
+        if strava_scheduler.start_monitoring():
+            print("✅ Strava scheduler started successfully")
+        else:
+            print("❌ Failed to start Strava scheduler")
     
     # For local development only
     app.run(debug=True, port=5001)

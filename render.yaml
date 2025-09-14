@@ -3,13 +3,15 @@ services:
     name: jolt
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: gunicorn wsgi:app
     envVars:
       - key: FLASK_SECRET_KEY
         generateValue: true
       - key: SUPABASE_URL
         value: https://ktaxucrnkaqvavtrzhlg.supabase.co
       - key: SUPABASE_KEY
+        sync: false  # You'll set this manually in Render dashboard
+      - key: SUPABASE_SERVICE_KEY
         sync: false  # You'll set this manually in Render dashboard
       - key: STRAVA_CLIENT_ID
         sync: false  # You'll set this manually in Render dashboard
@@ -19,3 +21,5 @@ services:
         value: https://your-app-name.onrender.com/strava/callback
       - key: FLASK_ENV
         value: production
+      - key: ENABLE_STRAVA_SCHEDULER
+        value: "true"
