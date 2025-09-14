@@ -4,8 +4,8 @@ This document provides a comprehensive list of all API endpoints in the Jolt app
 
 ## 📋 Authentication Types
 
-- **🔑 Token-based**: Requires `Authorization: Bearer <token>` header
-- **🍪 Session-based**: Requires browser login session
+- **🔑 Token-based**: Requires `Authorization: Bearer <token>` header (Primary authentication method)
+- **🍪 Session-based**: Requires browser login session (Legacy - for web UI only)
 - **🌐 Public**: No authentication required
 
 ---
@@ -29,45 +29,55 @@ This document provides a comprehensive list of all API endpoints in the Jolt app
 
 ---
 
-## 🍪 Session-Based API Endpoints
+## 🔑 Token-Based API Endpoints (All Data Access)
 
 ### Strava Integration
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `GET` | `/api/strava/activities` | Get Strava activities with detailed data | Session |
-| `GET` | `/api/strava/status` | Get Strava connection status | Session |
+| `GET` | `/api/strava/activities` | Get Strava activities with detailed data | Token |
+| `GET` | `/api/strava/status` | Get Strava connection status | Token |
 
 ### Analytics & Performance
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `GET` | `/api/analytics/comprehensive` | Comprehensive training analytics | Session |
-| `GET` | `/api/analytics/summary` | Training summary statistics | Session |
-| `GET` | `/api/analytics/performance-trends` | Performance trends over time | Session |
+| `GET` | `/api/analytics/comprehensive` | Comprehensive training analytics | Token |
+| `GET` | `/api/analytics/summary` | Training summary statistics | Token |
+| `GET` | `/api/analytics/performance-trends` | Performance trends over time | Token |
 
 ### Psychology Analysis
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `GET` | `/api/psychology/analysis` | Performance psychology analysis | Session |
-| `GET` | `/api/psychology/performance-events` | Performance events with context | Session |
-| `GET` | `/api/psychology/split-analysis/<activity_id>` | Detailed split analysis | Session |
-| `GET` | `/api/psychology/insights` | Psychology insights and recommendations | Session |
-| `POST` | `/api/psychology/submit-wellness` | Submit wellness/feeling data | Session |
-| `POST` | `/api/psychology/analyze-feelings` | Analyze feelings and get personalized insights | Session |
+| `GET` | `/api/psychology/analysis` | Performance psychology analysis | Token |
+| `GET` | `/api/psychology/performance-events` | Performance events with context | Token |
+| `GET` | `/api/psychology/split-analysis/<activity_id>` | Detailed split analysis | Token |
+| `GET` | `/api/psychology/insights` | Psychology insights and recommendations | Token |
+| `POST` | `/api/psychology/submit-wellness` | Submit wellness/feeling data | Token |
+| `POST` | `/api/psychology/analyze-feelings` | Analyze feelings and get personalized insights | Token |
 
 ### Nutrition Tracking
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `GET` | `/api/nutrition/dashboard` | Nutrition dashboard data | Session |
-| `GET` | `/api/nutrition/insights` | Nutrition insights and analysis | Session |
-| `POST` | `/api/nutrition/log-meal` | Log a new meal | Session |
-| `GET` | `/api/nutrition/daily-summary` | Daily nutrition summary | Session |
-| `GET` | `/api/nutrition/trends` | Nutrition trends over time | Session |
-| `GET` | `/api/nutrition/patterns` | Nutrition patterns and habits | Session |
+| `GET` | `/api/nutrition/dashboard` | Nutrition dashboard data | Token |
+| `GET` | `/api/nutrition/insights` | Nutrition insights and analysis | Token |
+| `POST` | `/api/nutrition/log-meal` | Log a new meal | Token |
+| `GET` | `/api/nutrition/daily-summary` | Daily nutrition summary | Token |
+| `GET` | `/api/nutrition/trends` | Nutrition trends over time | Token |
+| `GET` | `/api/nutrition/patterns` | Nutrition patterns and habits | Token |
 
 ### User Notifications
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `GET` | `/api/user/strava/notifications` | Get user's Strava notifications | Session |
+| `GET` | `/api/user/strava/notifications` | Get user's Strava notifications | Token |
+
+## 🍪 Session-Based Endpoints (Legacy - Web UI Only)
+
+### Web Interface
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `GET` | `/home` | Home page | Session |
+| `GET` | `/api-token` | Token management page | Session |
+| `POST` | `/api-token/generate` | Generate token (UI) | Session |
+| `POST` | `/api-token/revoke` | Revoke token (UI) | Session |
 
 ---
 
@@ -123,6 +133,22 @@ This document provides a comprehensive list of all API endpoints in the Jolt app
 - **🎯 Web UI**: 3 endpoints
 
 ### **Total: 38 API Endpoints**
+
+---
+
+## 🚀 **MIGRATION COMPLETE: Session → Token Authentication**
+
+### **✅ What Changed:**
+- **All data access endpoints** now use token-based authentication
+- **Session-based authentication** is now legacy (web UI only)
+- **Enhanced security** with proper token validation
+- **Better scalability** for mobile apps and third-party integrations
+
+### **🔧 Technical Changes:**
+- Added `@require_token_auth` decorator for enhanced token validation
+- Updated all endpoints to use `request.current_user_id` instead of `session['user']['id']`
+- Maintained backward compatibility for web UI
+- All existing functionality preserved
 
 ---
 

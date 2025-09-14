@@ -130,6 +130,55 @@ def require_api_auth(f):
     
     return decorated_function
 
+def require_token_auth(f):
+    """Enhanced decorator for token-based authentication with user data access"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get('Authorization', '')
+        
+        if not auth_header.startswith('Bearer '):
+            return jsonify({'error': 'Missing or invalid authorization header'}), 401
+        
+        token = auth_header.split(' ')[1]
+        if not token.startswith('jolt_pat_'):
+            return jsonify({'error': 'Invalid token format'}), 401
+        
+        # Verify token in database
+        token_hash = hash_token(token)
+        try:
+            result = supabase.table('personal_access_tokens').select('*').eq('token_hash', token_hash).eq('is_active', True).execute()
+            
+            if not result.data:
+                return jsonify({'error': 'Invalid or expired token'}), 401
+            
+            token_record = result.data[0]
+            
+            # Check if token is expired
+            if token_record.get('expires_at'):
+                expires_at = datetime.fromisoformat(token_record['expires_at'].replace('Z', '+00:00'))
+                if expires_at < datetime.now(expires_at.tzinfo):
+                    return jsonify({'error': 'Token has expired'}), 401
+            
+            # Update last_used_at
+            supabase.table('personal_access_tokens').update({
+                'last_used_at': datetime.utcnow().isoformat()
+            }).eq('id', token_record['id']).execute()
+            
+            # Add comprehensive user info to request context
+            request.current_user_id = token_record['user_id']
+            request.current_user = {
+                'id': token_record['user_id'],
+                'email': token_record.get('user_email', ''),
+                'token_id': token_record['id']
+            }
+            
+            return f(*args, **kwargs)
+            
+        except Exception as e:
+            return jsonify({'error': 'Token validation failed'}), 401
+    
+    return decorated_function
+
 def get_user_strava_token(user_id):
     """Helper function to get valid Strava access token for a user"""
     if not strava_token_manager:
@@ -369,12 +418,10 @@ def strava_disconnect():
     return redirect(url_for('home'))
 
 @app.route('/api/strava/activities')
+@require_token_auth
 def strava_activities():
     """Get Strava activities as JSON"""
-    if 'user' not in session:
-        return jsonify({'error': 'User not authenticated'}), 401
-    
-    user_id = session['user']['id']
+    user_id = request.current_user_id
     if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava account not connected'}), 400
     
@@ -878,12 +925,10 @@ def get_meal_insights(user_id, days=30):
         raise ValueError(f"Failed to get meal insights: {str(e)}")
 
 @app.route('/api/analytics/comprehensive')
+@require_token_auth
 def comprehensive_analytics():
     """Get comprehensive training analytics as JSON"""
-    if 'user' not in session:
-        return jsonify({'error': 'User not authenticated'}), 401
-    
-    user_id = session['user']['id']
+    user_id = request.current_user_id
     if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava account not connected'}), 400
     
@@ -1012,12 +1057,10 @@ def wellness_insights():
         return redirect(url_for('home'))
 
 @app.route('/api/analytics/summary')
+@require_token_auth
 def api_analytics_summary():
     """API endpoint for analytics summary"""
-    if 'user' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    user_id = session['user']['id']
+    user_id = request.current_user_id
     if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava not connected'}), 400
     
@@ -1063,12 +1106,10 @@ def api_analytics_summary():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/analytics/performance-trends')
+@require_token_auth
 def api_performance_trends():
     """API endpoint for performance trends over time"""
-    if 'user' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    user_id = session['user']['id']
+    user_id = request.current_user_id
     if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava not connected'}), 400
     
@@ -1143,12 +1184,10 @@ def api_performance_trends():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/psychology/analysis')
+@require_token_auth
 def psychology_analysis():
     """Get performance psychology analysis as JSON"""
-    if 'user' not in session:
-        return jsonify({'error': 'User not authenticated'}), 401
-    
-    user_id = session['user']['id']
+    user_id = request.current_user_id
     if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava account not connected'}), 400
     
@@ -1215,12 +1254,10 @@ def submit_wellness_psychology():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/psychology/performance-events')
+@require_token_auth
 def api_performance_events():
     """API endpoint for performance events that need psychological context"""
-    if 'user' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    user_id = session['user']['id']
+    user_id = request.current_user_id
     if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava not connected'}), 400
     
@@ -1229,7 +1266,7 @@ def api_performance_events():
         if not access_token:
             flash('Strava connection expired. Please reconnect your account.', 'error')
             return redirect(url_for('home'))
-        
+            
         headers = {'Authorization': f'Bearer {access_token}'}
         psychology_engine = PerformancePsychologyEngine(headers)
         
@@ -1262,17 +1299,15 @@ def api_performance_events():
             'total_events': len(events_data),
             'analysis_period': f'{days} days'
         })
-        
+            
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/psychology/split-analysis/<int:activity_id>')
+@require_token_auth
 def api_split_analysis(activity_id):
     """API endpoint for detailed split analysis of a specific activity"""
-    if 'user' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    user_id = session['user']['id']
+    user_id = request.current_user_id
     if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava not connected'}), 400
     
@@ -1280,8 +1315,8 @@ def api_split_analysis(activity_id):
         access_token = get_user_strava_token(user_id)
         if not access_token:
             flash('Strava connection expired. Please reconnect your account.', 'error')
-            return redirect(url_for('home'))
-        
+        return redirect(url_for('home'))
+
         headers = {'Authorization': f'Bearer {access_token}'}
         
         # Get detailed activity data
@@ -1341,12 +1376,10 @@ def api_split_analysis(activity_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/psychology/insights')
+@require_token_auth
 def api_psychology_insights():
     """API endpoint for performance psychology insights"""
-    if 'user' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    user_id = session['user']['id']
+    user_id = request.current_user_id
     if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava not connected'}), 400
     
@@ -1375,12 +1408,10 @@ def api_psychology_insights():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/psychology/submit-wellness', methods=['POST'])
+@require_token_auth
 def submit_wellness_data():
     """Submit wellness/feeling data for psychology analysis"""
-    if 'user' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    user_id = session['user']['id']
+    user_id = request.current_user_id
     if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava not connected'}), 400
     
@@ -1427,12 +1458,10 @@ def submit_wellness_data():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/psychology/analyze-feelings', methods=['POST'])
+@require_token_auth
 def analyze_feelings():
     """Analyze user's feelings and provide psychological insights"""
-    if 'user' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    user_id = session['user']['id']
+    user_id = request.current_user_id
     if not strava_token_manager or not strava_token_manager.is_connected(user_id):
         return jsonify({'error': 'Strava not connected'}), 400
     
@@ -1878,13 +1907,12 @@ def meal_analysis_result():
     return render_template('meal_analysis_result.html', meal_data=meal_data)
 
 @app.route('/api/nutrition/dashboard')
+@require_token_auth
 def nutrition_dashboard():
     """Get nutrition dashboard data as JSON"""
-    if 'user' not in session:
-        return jsonify({'error': 'User not authenticated'}), 401
     
     try:
-        user_id = session['user']['id']
+        user_id = request.current_user_id
         
         # Get time period from query parameter (default to 7 days)
         days = request.args.get('days', 7, type=int)
@@ -1926,13 +1954,12 @@ def nutrition_dashboard():
         return jsonify({'error': f'Error loading nutrition dashboard: {str(e)}'}), 500
 
 @app.route('/api/nutrition/insights')
+@require_token_auth
 def nutrition_insights():
     """Get comprehensive nutrition insights as JSON"""
-    if 'user' not in session:
-        return jsonify({'error': 'User not authenticated'}), 401
     
     try:
-        user_id = session['user']['id']
+        user_id = request.current_user_id
         
         # Get time period from query parameter (default to 30 days)
         days = request.args.get('days', 30, type=int)
@@ -1955,10 +1982,9 @@ def nutrition_insights():
 
 # API Endpoints for Nutrition
 @app.route('/api/nutrition/log-meal', methods=['POST'])
+@require_token_auth
 def api_log_meal():
     """API endpoint to log a meal"""
-    if 'user' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     try:
         data = request.get_json()
@@ -1971,7 +1997,7 @@ def api_log_meal():
         meal_data = analyze_meal_with_calorie_ninjas(meal_description)
         
         # Save to Supabase
-        user_id = session['user']['id']
+        user_id = request.current_user_id
         saved_meal = save_meal_to_supabase(meal_data, user_id)
         
         if saved_meal:
@@ -1987,13 +2013,12 @@ def api_log_meal():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/nutrition/daily-summary')
+@require_token_auth
 def api_daily_nutrition():
     """API endpoint for daily nutrition summary"""
-    if 'user' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        user_id = session['user']['id']
+        user_id = request.current_user_id
         date_str = request.args.get('date')
         
         if date_str:
@@ -2011,13 +2036,12 @@ def api_daily_nutrition():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/nutrition/trends')
+@require_token_auth
 def api_nutrition_trends():
     """API endpoint for nutrition trends"""
-    if 'user' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        user_id = session['user']['id']
+        user_id = request.current_user_id
         days = request.args.get('days', 7, type=int)
         valid_periods = [1, 3, 7, 14, 30, 60, 90]
         
@@ -2034,13 +2058,12 @@ def api_nutrition_trends():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/nutrition/insights')
+@require_token_auth
 def api_nutrition_insights():
     """API endpoint for comprehensive nutrition insights"""
-    if 'user' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        user_id = session['user']['id']
+        user_id = request.current_user_id
         days = request.args.get('days', 30, type=int)
         valid_periods = [7, 14, 30, 60, 90]
         
@@ -2054,13 +2077,12 @@ def api_nutrition_insights():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/nutrition/patterns')
+@require_token_auth
 def api_meal_patterns():
     """API endpoint for meal pattern analysis"""
-    if 'user' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        user_id = session['user']['id']
+        user_id = request.current_user_id
         days = request.args.get('days', 30, type=int)
         valid_periods = [7, 14, 30, 60, 90]
         
@@ -2114,13 +2136,12 @@ def mcp_analyze_meal():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/mcp/nutrition/analyze-and-save', methods=['POST'])
+@require_token_auth
 def mcp_analyze_and_save_meal():
     """
     MCP Endpoint: Analyze meal and save to user's nutrition log
-    Requires user authentication via session or API token
+    Requires user authentication via API token
     """
-    if 'user' not in session:
-        return jsonify({'error': 'User authentication required'}), 401
     
     try:
         data = request.get_json()
@@ -2135,7 +2156,7 @@ def mcp_analyze_and_save_meal():
         meal_analysis = analyze_meal_with_calorie_ninjas(meal_description)
         
         # Save to user's nutrition log
-        user_id = session['user']['id']
+        user_id = request.current_user_id
         saved_meal = save_meal_to_supabase(meal_analysis, user_id)
         
         if saved_meal:
@@ -2374,7 +2395,7 @@ def api_strava_status():
         return jsonify({'error': f'Failed to get status: {str(e)}'}), 500
 
 @app.route('/api/user/strava/notifications', methods=['GET'])
-@require_auth
+@require_token_auth
 def get_user_notifications():
     """
     Get activity notifications for the current user.
@@ -2382,7 +2403,7 @@ def get_user_notifications():
     if not strava_activity_monitor:
         return jsonify({'error': 'Strava activity monitor not initialized'}), 500
     
-    user_id = session['user']['id']
+    user_id = request.current_user_id
     
     try:
         # Get all notifications for this user (both sent and unsent)
@@ -2510,7 +2531,7 @@ def scheduler_admin():
             
     except Exception as e:
         flash('Error checking API token. Please try again.', 'error')
-        return redirect(url_for('home'))
+    return redirect(url_for('home'))
 
 # Initialize scheduler after app is fully configured
 if strava_activity_monitor and not strava_scheduler:
