@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+
+{% block title %}Meal Analysis Results - Jolt{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-chart-pie"></i> Meal Analysis Results</h2>
+            <div>
+                <a href="{{ url_for('log_meal') }}" class="btn btn-success me-2">
+                    <i class="fas fa-plus"></i> Log Another Meal
+                </a>
+                <a href="{{ url_for('nutrition_dashboard') }}" class="btn btn-info me-2">
+                    <i class="fas fa-chart-pie"></i> Nutrition Dashboard
+                </a>
+                <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Home
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Meal Summary -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-utensils"></i> {{ meal_data.name }}</h4>
+                <small class="text-muted">Analyzed with CalorieNinjas API</small>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-fire text-danger fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ meal_data.calories }}</h5>
+                                <small class="text-muted">Calories</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-bread-slice text-warning fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ meal_data.carbs }}g</h5>
+                                <small class="text-muted">Carbs</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-drumstick-bite text-success fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ meal_data.protein }}g</h5>
+                                <small class="text-muted">Protein</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-seedling text-info fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ meal_data.fats }}g</h5>
+                                <small class="text-muted">Fats</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Additional Nutrition Info -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-info-circle"></i> Additional Nutrition</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-6">
+                        <strong>Fiber:</strong> {{ meal_data.fiber }}g
+                    </div>
+                    <div class="col-6">
+                        <strong>Sugar:</strong> {{ meal_data.sugar }}g
+                    </div>
+                    <div class="col-6 mt-2">
+                        <strong>Sodium:</strong> {{ meal_data.sodium }}mg
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-chart-pie"></i> Macro Breakdown</h5>
+            </div>
+            <div class="card-body">
+                {% set protein_cals = meal_data.protein * 4 %}
+                {% set carb_cals = meal_data.carbs * 4 %}
+                {% set fat_cals = meal_data.fats * 9 %}
+                {% set total_macro_cals = protein_cals + carb_cals + fat_cals %}
+                
+                {% if total_macro_cals > 0 %}
+                    {% set protein_pct = (protein_cals / total_macro_cals * 100) | round(1) %}
+                    {% set carb_pct = (carb_cals / total_macro_cals * 100) | round(1) %}
+                    {% set fat_pct = (fat_cals / total_macro_cals * 100) | round(1) %}
+                    
+                    <div class="progress mb-2" style="height: 25px;">
+                        <div class="progress-bar bg-success" style="width: {{ protein_pct }}%">
+                            Protein {{ protein_pct }}%
+                        </div>
+                        <div class="progress-bar bg-warning" style="width: {{ carb_pct }}%">
+                            Carbs {{ carb_pct }}%
+                        </div>
+                        <div class="progress-bar bg-info" style="width: {{ fat_pct }}%">
+                            Fats {{ fat_pct }}%
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Health Recommendations -->
+{% if meal_data.health_recommendations %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-heart text-success"></i> Health Recommendations</h4>
+            </div>
+            <div class="card-body">
+                {% for recommendation in meal_data.health_recommendations %}
+                <div class="alert alert-info mb-2">
+                    <i class="fas fa-lightbulb"></i> {{ recommendation }}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Individual Items Breakdown -->
+{% if meal_data.ingredients %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-list"></i> Individual Items</h4>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Serving Size</th>
+                                <th>Calories</th>
+                                <th>Carbs (g)</th>
+                                <th>Protein (g)</th>
+                                <th>Fats (g)</th>
+                                <th>Fiber (g)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in meal_data.ingredients %}
+                            <tr>
+                                <td><strong>{{ item.name }}</strong></td>
+                                <td>{{ item.serving_size_g }}g</td>
+                                <td>{{ item.calories }}</td>
+                                <td>{{ item.carbohydrates_total_g }}</td>
+                                <td>{{ item.protein_g }}</td>
+                                <td>{{ item.fat_total_g }}</td>
+                                <td>{{ item.fiber_g }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="row mt-4">
+    <div class="col-12 text-center">
+        <p class="text-muted">
+            <i class="fas fa-robot"></i> Nutrition analysis powered by CalorieNinjas API
+        </p>
+    </div>
+</div>
+{% endblock %}

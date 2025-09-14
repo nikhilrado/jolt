@@ -18,9 +18,9 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
 
-# CalAI API configuration
-CALAI_API_URL = "http://api.calai.app/v4/describeMeal"
-CALAI_API_KEY = os.getenv('CALAI_API_KEY')  # You'll need to add this to your .env file
+# CalorieNinjas API configuration
+CALORIE_NINJAS_API_URL = os.getenv('CALORIE_NINJAS_API_URL', 'https://api.calorieninjas.com/v1/nutrition')
+CALORIE_NINJAS_API_KEY = os.getenv('CALORIE_NINJAS_API_KEY')  # Fallback to your key
 
 # Supabase configuration
 SUPABASE_URL = os.getenv('SUPABASE_URL')
@@ -425,50 +425,138 @@ def calculate_hr_zones(hr_data):
     
     return zones
 
-# CalAI Integration Functions
-def analyze_meal_with_calai(meal_description):
-    """Analyze meal description using CalAI API"""
-    if not CALAI_API_KEY:
-        raise ValueError("CalAI API key not configured")
+# CalorieNinjas Integration Functions
+def analyze_meal_with_calorie_ninjas(meal_description):
+    """Analyze meal description using CalorieNinjas API"""
+    if not CALORIE_NINJAS_API_KEY:
+        print(f"DEBUG: CALORIE_NINJAS_API_KEY is: {CALORIE_NINJAS_API_KEY}")
+        print(f"DEBUG: Environment variable CALORIE_NINJAS_API_KEY: {os.getenv('CALORIE_NINJAS_API_KEY')}")
+        raise ValueError("CalorieNinjas API key not configured")
     
     headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {CALAI_API_KEY}'  # Adjust if CalAI uses different auth
-    }
-    
-    payload = {
-        "data": {
-            "text": meal_description
-        }
+        'X-Api-Key': CALORIE_NINJAS_API_KEY
     }
     
     try:
-        response = requests.post(CALAI_API_URL, headers=headers, json=payload)
+        # URL encode the query
+        import urllib.parse
+        encoded_query = urllib.parse.quote(meal_description)
+        url = f"{CALORIE_NINJAS_API_URL}?query={encoded_query}"
+        
+        response = requests.get(url, headers=headers)
         response.raise_for_status()
         
         result = response.json()
-        if result.get('success'):
-            return result['data']
+        
+        if 'items' in result and result['items']:
+            # Aggregate all items into a single meal
+            total_calories = sum(item.get('calories', 0) for item in result['items'])
+            total_carbs = sum(item.get('carbohydrates_total_g', 0) for item in result['items'])
+            total_fats = sum(item.get('fat_total_g', 0) for item in result['items'])
+            total_protein = sum(item.get('protein_g', 0) for item in result['items'])
+            total_sodium = sum(item.get('sodium_mg', 0) for item in result['items'])
+            total_fiber = sum(item.get('fiber_g', 0) for item in result['items'])
+            total_sugar = sum(item.get('sugar_g', 0) for item in result['items'])
+            
+            # Create meal name from first few items
+            item_names = [item.get('name', 'Unknown') for item in result['items'][:3]]
+            meal_name = ', '.join(item_names)
+            if len(result['items']) > 3:
+                meal_name += f" and {len(result['items']) - 3} more items"
+            
+            return {
+                'name': meal_name,
+                'calories': round(total_calories, 1),
+                'carbs': round(total_carbs, 1),
+                'fats': round(total_fats, 1),
+                'protein': round(total_protein, 1),
+                'sodium': round(total_sodium, 1),
+                'fiber': round(total_fiber, 1),
+                'sugar': round(total_sugar, 1),
+                'ingredients': result['items'],
+                'health_recommendations': generate_health_recommendations(
+                    total_calories, total_carbs, total_fats, total_protein, 
+                    total_sodium, total_fiber, total_sugar
+                )
+            }
         else:
-            raise ValueError(f"CalAI API error: {result.get('error', 'Unknown error')}")
+            raise ValueError("No nutritional data found for the meal description")
             
     except requests.exceptions.RequestException as e:
-        raise ValueError(f"Failed to call CalAI API: {str(e)}")
+        raise ValueError(f"Failed to call CalorieNinjas API: {str(e)}")
+
+def generate_health_recommendations(calories, carbs, fats, protein, sodium, fiber, sugar):
+    """Generate health recommendations based on nutritional data"""
+    recommendations = []
+    
+    # Calorie recommendations
+    if calories > 800:
+        recommendations.append("Consider reducing portion size - this meal is quite high in calories")
+    elif calories < 200:
+        recommendations.append("This meal is quite low in calories - consider adding more nutrient-dense foods")
+    
+    # Protein recommendations
+    if protein < 15:
+        recommendations.append("Add more protein sources like lean meat, fish, beans, or Greek yogurt")
+    elif protein > 50:
+        recommendations.append("High protein content - great for muscle building and satiety!")
+    
+    # Fat recommendations
+    if fats > 30:
+        recommendations.append("Consider reducing saturated fats and opting for healthier fats like olive oil or avocado")
+    elif fats < 5:
+        recommendations.append("Add healthy fats like nuts, seeds, or olive oil for better nutrient absorption")
+    
+    # Carbohydrate recommendations
+    if carbs > 80:
+        recommendations.append("High carb content - consider balancing with more protein and vegetables")
+    elif carbs < 20:
+        recommendations.append("Low carb content - add some whole grains or fruits for energy")
+    
+    # Fiber recommendations
+    if fiber < 5:
+        recommendations.append("Add more fiber-rich foods like vegetables, fruits, or whole grains")
+    elif fiber > 15:
+        recommendations.append("Excellent fiber content - great for digestive health!")
+    
+    # Sodium recommendations
+    if sodium > 1000:
+        recommendations.append("High sodium content - consider reducing salt and processed foods")
+    elif sodium < 200:
+        recommendations.append("Low sodium content - good for heart health")
+    
+    # Sugar recommendations
+    if sugar > 25:
+        recommendations.append("High sugar content - consider reducing added sugars and processed foods")
+    elif sugar < 5:
+        recommendations.append("Low sugar content - great choice for stable energy")
+    
+    # Macro balance recommendations
+    protein_percentage = (protein * 4 / calories * 100) if calories > 0 else 0
+    carb_percentage = (carbs * 4 / calories * 100) if calories > 0 else 0
+    fat_percentage = (fats * 9 / calories * 100) if calories > 0 else 0
+    
+    if protein_percentage < 15:
+        recommendations.append("Increase protein to 15-25% of total calories for better muscle health")
+    if carb_percentage > 70:
+        recommendations.append("Consider reducing carbs and increasing protein and healthy fats")
+    if fat_percentage < 20:
+        recommendations.append("Add healthy fats to reach 20-35% of total calories")
+    
+    return recommendations
 
 def save_meal_to_supabase(meal_data, user_id):
     """Save analyzed meal data to Supabase meals table"""
     try:
-        # Prepare the meal data for Supabase
+        # Prepare the meal data for Supabase (simplified schema)
+        # Convert decimal values to integers for bigint fields
         meal_record = {
             'user_id': user_id,
-            'carbs': meal_data.get('carbs', 0),
-            'fats': meal_data.get('fats', 0),
-            'protein': meal_data.get('protein', 0),
-            'calories': meal_data.get('calories', 0),
-            'name': meal_data.get('name', 'Unknown Meal'),
-            'servings': meal_data.get('servings', 1),
-            'ingredients': json.dumps(meal_data.get('ingredients', [])),
-            'healthrating': json.dumps(meal_data.get('healthRating', {}))
+            'carbs': int(round(meal_data.get('carbs', 0))),
+            'fats': int(round(meal_data.get('fats', 0))),
+            'protein': int(round(meal_data.get('protein', 0))),
+            'calories': int(round(meal_data.get('calories', 0))),
+            'name': meal_data.get('name', 'Unknown Meal')
         }
         
         # Insert into Supabase
@@ -541,6 +629,154 @@ def get_nutrition_trends(user_id, days=7):
         
     except Exception as e:
         raise ValueError(f"Failed to get nutrition trends: {str(e)}")
+
+def analyze_meal_patterns(user_id, days=30):
+    """Analyze meal patterns and provide insights over time"""
+    try:
+        trends = get_nutrition_trends(user_id, days)
+        
+        if not trends:
+            return {
+                'insights': [],
+                'patterns': {},
+                'recommendations': ['Start logging meals to get personalized insights!']
+            }
+        
+        # Calculate averages and trends
+        total_days = len(trends)
+        avg_calories = sum(day['total_calories'] for day in trends) / total_days
+        avg_protein = sum(day['total_protein'] for day in trends) / total_days
+        avg_carbs = sum(day['total_carbs'] for day in trends) / total_days
+        avg_fats = sum(day['total_fats'] for day in trends) / total_days
+        
+        # Calculate consistency metrics
+        calorie_variance = statistics.variance([day['total_calories'] for day in trends]) if total_days > 1 else 0
+        protein_variance = statistics.variance([day['total_protein'] for day in trends]) if total_days > 1 else 0
+        
+        # Analyze patterns
+        insights = []
+        patterns = {}
+        recommendations = []
+        
+        # Calorie analysis
+        if avg_calories > 2500:
+            insights.append(f"High average daily calories ({avg_calories:.0f}) - consider portion control")
+            recommendations.append("Focus on nutrient-dense, lower-calorie foods")
+        elif avg_calories < 1200:
+            insights.append(f"Low average daily calories ({avg_calories:.0f}) - ensure adequate nutrition")
+            recommendations.append("Add healthy snacks and increase portion sizes")
+        else:
+            insights.append(f"Good calorie range ({avg_calories:.0f} daily average)")
+        
+        # Protein analysis
+        protein_percentage = (avg_protein * 4 / avg_calories * 100) if avg_calories > 0 else 0
+        if protein_percentage < 15:
+            insights.append(f"Low protein intake ({protein_percentage:.1f}% of calories)")
+            recommendations.append("Increase protein sources: lean meats, fish, beans, Greek yogurt")
+        elif protein_percentage > 35:
+            insights.append(f"Very high protein intake ({protein_percentage:.1f}% of calories)")
+            recommendations.append("Consider balancing with more vegetables and healthy carbs")
+        else:
+            insights.append(f"Good protein balance ({protein_percentage:.1f}% of calories)")
+        
+        # Consistency analysis
+        if calorie_variance > 100000:  # High variance
+            insights.append("High day-to-day calorie variation - aim for more consistency")
+            recommendations.append("Plan meals ahead and maintain regular eating patterns")
+        else:
+            insights.append("Good consistency in daily calorie intake")
+        
+        # Meal frequency analysis
+        total_meals = sum(day['total_meals'] for day in trends)
+        avg_meals_per_day = total_meals / total_days
+        
+        if avg_meals_per_day < 2:
+            insights.append(f"Low meal frequency ({avg_meals_per_day:.1f} meals/day)")
+            recommendations.append("Consider adding healthy snacks between meals")
+        elif avg_meals_per_day > 5:
+            insights.append(f"High meal frequency ({avg_meals_per_day:.1f} meals/day)")
+            recommendations.append("Consider consolidating into fewer, larger meals")
+        else:
+            insights.append(f"Good meal frequency ({avg_meals_per_day:.1f} meals/day)")
+        
+        # Macro balance analysis
+        carb_percentage = (avg_carbs * 4 / avg_calories * 100) if avg_calories > 0 else 0
+        fat_percentage = (avg_fats * 9 / avg_calories * 100) if avg_calories > 0 else 0
+        
+        if carb_percentage > 70:
+            insights.append(f"High carb intake ({carb_percentage:.1f}% of calories)")
+            recommendations.append("Balance carbs with more protein and healthy fats")
+        elif carb_percentage < 30:
+            insights.append(f"Low carb intake ({carb_percentage:.1f}% of calories)")
+            recommendations.append("Add more whole grains, fruits, and vegetables")
+        
+        if fat_percentage < 20:
+            insights.append(f"Low fat intake ({fat_percentage:.1f}% of calories)")
+            recommendations.append("Add healthy fats: nuts, seeds, olive oil, avocado")
+        elif fat_percentage > 40:
+            insights.append(f"High fat intake ({fat_percentage:.1f}% of calories)")
+            recommendations.append("Focus on lean proteins and reduce saturated fats")
+        
+        # Store patterns
+        patterns = {
+            'avg_calories': round(avg_calories, 1),
+            'avg_protein': round(avg_protein, 1),
+            'avg_carbs': round(avg_carbs, 1),
+            'avg_fats': round(avg_fats, 1),
+            'avg_meals_per_day': round(avg_meals_per_day, 1),
+            'calorie_consistency': 'high' if calorie_variance < 50000 else 'medium' if calorie_variance < 100000 else 'low',
+            'protein_consistency': 'high' if protein_variance < 100 else 'medium' if protein_variance < 300 else 'low',
+            'macro_balance': {
+                'protein_pct': round(protein_percentage, 1),
+                'carb_pct': round(carb_percentage, 1),
+                'fat_pct': round(fat_percentage, 1)
+            }
+        }
+        
+        return {
+            'insights': insights,
+            'patterns': patterns,
+            'recommendations': recommendations,
+            'analysis_period': f'{days} days'
+        }
+        
+    except Exception as e:
+        raise ValueError(f"Failed to analyze meal patterns: {str(e)}")
+
+def get_meal_insights(user_id, days=30):
+    """Get comprehensive meal insights and recommendations"""
+    try:
+        # Get basic trends
+        trends = get_nutrition_trends(user_id, days)
+        
+        # Get pattern analysis
+        pattern_analysis = analyze_meal_patterns(user_id, days)
+        
+        # Calculate weekly patterns
+        weekly_patterns = {}
+        if len(trends) >= 7:
+            recent_week = trends[-7:]
+            weekly_patterns = {
+                'avg_calories': sum(day['total_calories'] for day in recent_week) / 7,
+                'avg_protein': sum(day['total_protein'] for day in recent_week) / 7,
+                'avg_carbs': sum(day['total_carbs'] for day in recent_week) / 7,
+                'avg_fats': sum(day['total_fats'] for day in recent_week) / 7,
+                'total_meals': sum(day['total_meals'] for day in recent_week)
+            }
+        
+        return {
+            'trends': trends,
+            'pattern_analysis': pattern_analysis,
+            'weekly_patterns': weekly_patterns,
+            'summary': {
+                'total_days_analyzed': len(trends),
+                'total_meals_logged': sum(day['total_meals'] for day in trends),
+                'avg_daily_calories': round(sum(day['total_calories'] for day in trends) / len(trends), 1) if trends else 0
+            }
+        }
+        
+    except Exception as e:
+        raise ValueError(f"Failed to get meal insights: {str(e)}")
 
 @app.route('/analytics/comprehensive')
 def comprehensive_analytics():
@@ -1249,16 +1485,18 @@ def log_meal():
                 flash('Please provide a meal description', 'error')
                 return render_template('log_meal.html')
             
-            # Analyze meal with CalAI
-            meal_data = analyze_meal_with_calai(meal_description)
+            # Analyze meal with CalorieNinjas
+            meal_data = analyze_meal_with_calorie_ninjas(meal_description)
             
             # Save to Supabase
             user_id = session['user']['id']
             saved_meal = save_meal_to_supabase(meal_data, user_id)
             
             if saved_meal:
+                # Store analysis data in session to show on success page
+                session['last_meal_analysis'] = meal_data
                 flash('Meal logged successfully!', 'success')
-                return redirect(url_for('nutrition_dashboard'))
+                return redirect(url_for('meal_analysis_result'))
             else:
                 flash('Failed to save meal', 'error')
                 
@@ -1266,6 +1504,22 @@ def log_meal():
             flash(f'Error logging meal: {str(e)}', 'error')
     
     return render_template('log_meal.html')
+
+@app.route('/nutrition/meal-analysis')
+def meal_analysis_result():
+    """Display meal analysis results"""
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    if 'last_meal_analysis' not in session:
+        flash('No meal analysis found', 'error')
+        return redirect(url_for('log_meal'))
+    
+    meal_data = session['last_meal_analysis']
+    # Clear the session data after displaying
+    session.pop('last_meal_analysis', None)
+    
+    return render_template('meal_analysis_result.html', meal_data=meal_data)
 
 @app.route('/nutrition/dashboard')
 def nutrition_dashboard():
@@ -1310,6 +1564,34 @@ def nutrition_dashboard():
         flash(f'Error loading nutrition dashboard: {str(e)}', 'error')
         return redirect(url_for('home'))
 
+@app.route('/nutrition/insights')
+def nutrition_insights():
+    """Display comprehensive nutrition insights and analysis"""
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    try:
+        user_id = session['user']['id']
+        
+        # Get time period from query parameter (default to 30 days)
+        days = request.args.get('days', 30, type=int)
+        valid_periods = [7, 14, 30, 60, 90]
+        
+        if days not in valid_periods:
+            days = 30  # Default fallback
+        
+        # Get comprehensive meal insights
+        insights = get_meal_insights(user_id, days)
+        
+        return render_template('nutrition_insights.html', 
+                             insights=insights, 
+                             selected_days=days, 
+                             valid_periods=valid_periods)
+        
+    except Exception as e:
+        flash(f'Error loading nutrition insights: {str(e)}', 'error')
+        return redirect(url_for('home'))
+
 # API Endpoints for Nutrition
 @app.route('/api/nutrition/log-meal', methods=['POST'])
 def api_log_meal():
@@ -1324,8 +1606,8 @@ def api_log_meal():
         if not meal_description:
             return jsonify({'error': 'Meal description is required'}), 400
         
-        # Analyze meal with CalAI
-        meal_data = analyze_meal_with_calai(meal_description)
+        # Analyze meal with CalorieNinjas
+        meal_data = analyze_meal_with_calorie_ninjas(meal_description)
         
         # Save to Supabase
         user_id = session['user']['id']
@@ -1390,6 +1672,252 @@ def api_nutrition_trends():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/nutrition/insights')
+def api_nutrition_insights():
+    """API endpoint for comprehensive nutrition insights"""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        user_id = session['user']['id']
+        days = request.args.get('days', 30, type=int)
+        valid_periods = [7, 14, 30, 60, 90]
+        
+        if days not in valid_periods:
+            days = 30  # Default fallback
+        
+        insights = get_meal_insights(user_id, days)
+        return jsonify(insights)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/nutrition/patterns')
+def api_meal_patterns():
+    """API endpoint for meal pattern analysis"""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        user_id = session['user']['id']
+        days = request.args.get('days', 30, type=int)
+        valid_periods = [7, 14, 30, 60, 90]
+        
+        if days not in valid_periods:
+            days = 30  # Default fallback
+        
+        patterns = analyze_meal_patterns(user_id, days)
+        return jsonify(patterns)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# MCP API Endpoints for CalorieNinjas Integration
+@app.route('/api/mcp/nutrition/analyze', methods=['POST'])
+def mcp_analyze_meal():
+    """
+    MCP Endpoint: Analyze meal description using CalorieNinjas API
+    Returns comprehensive nutritional analysis without saving to database
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON data required'}), 400
+        
+        meal_description = data.get('meal_description', '').strip()
+        if not meal_description:
+            return jsonify({'error': 'meal_description is required'}), 400
+        
+        # Analyze meal with CalorieNinjas
+        meal_analysis = analyze_meal_with_calorie_ninjas(meal_description)
+        
+        # Return analysis without saving to database
+        return jsonify({
+            'success': True,
+            'meal_description': meal_description,
+            'analysis': {
+                'name': meal_analysis['name'],
+                'calories': meal_analysis['calories'],
+                'carbs': meal_analysis['carbs'],
+                'fats': meal_analysis['fats'],
+                'protein': meal_analysis['protein'],
+                'sodium': meal_analysis['sodium'],
+                'fiber': meal_analysis['fiber'],
+                'sugar': meal_analysis['sugar'],
+                'ingredients': meal_analysis['ingredients'],
+                'health_recommendations': meal_analysis['health_recommendations']
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/mcp/nutrition/analyze-and-save', methods=['POST'])
+def mcp_analyze_and_save_meal():
+    """
+    MCP Endpoint: Analyze meal and save to user's nutrition log
+    Requires user authentication via session or API token
+    """
+    if 'user' not in session:
+        return jsonify({'error': 'User authentication required'}), 401
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON data required'}), 400
+        
+        meal_description = data.get('meal_description', '').strip()
+        if not meal_description:
+            return jsonify({'error': 'meal_description is required'}), 400
+        
+        # Analyze meal with CalorieNinjas
+        meal_analysis = analyze_meal_with_calorie_ninjas(meal_description)
+        
+        # Save to user's nutrition log
+        user_id = session['user']['id']
+        saved_meal = save_meal_to_supabase(meal_analysis, user_id)
+        
+        if saved_meal:
+            return jsonify({
+                'success': True,
+                'meal_description': meal_description,
+                'saved_meal_id': saved_meal['id'],
+                'analysis': {
+                    'name': meal_analysis['name'],
+                    'calories': meal_analysis['calories'],
+                    'carbs': meal_analysis['carbs'],
+                    'fats': meal_analysis['fats'],
+                    'protein': meal_analysis['protein'],
+                    'sodium': meal_analysis['sodium'],
+                    'fiber': meal_analysis['fiber'],
+                    'sugar': meal_analysis['sugar'],
+                    'ingredients': meal_analysis['ingredients'],
+                    'health_recommendations': meal_analysis['health_recommendations']
+                }
+            })
+        else:
+            return jsonify({'error': 'Failed to save meal to database'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/mcp/nutrition/batch-analyze', methods=['POST'])
+def mcp_batch_analyze_meals():
+    """
+    MCP Endpoint: Analyze multiple meal descriptions in batch
+    Returns analysis for all meals without saving to database
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON data required'}), 400
+        
+        meal_descriptions = data.get('meal_descriptions', [])
+        if not meal_descriptions or not isinstance(meal_descriptions, list):
+            return jsonify({'error': 'meal_descriptions array is required'}), 400
+        
+        if len(meal_descriptions) > 10:
+            return jsonify({'error': 'Maximum 10 meals per batch request'}), 400
+        
+        results = []
+        for i, meal_description in enumerate(meal_descriptions):
+            try:
+                meal_analysis = analyze_meal_with_calorie_ninjas(meal_description.strip())
+                results.append({
+                    'index': i,
+                    'meal_description': meal_description,
+                    'success': True,
+                    'analysis': {
+                        'name': meal_analysis['name'],
+                        'calories': meal_analysis['calories'],
+                        'carbs': meal_analysis['carbs'],
+                        'fats': meal_analysis['fats'],
+                        'protein': meal_analysis['protein'],
+                        'sodium': meal_analysis['sodium'],
+                        'fiber': meal_analysis['fiber'],
+                        'sugar': meal_analysis['sugar'],
+                        'ingredients': meal_analysis['ingredients'],
+                        'health_recommendations': meal_analysis['health_recommendations']
+                    }
+                })
+            except Exception as e:
+                results.append({
+                    'index': i,
+                    'meal_description': meal_description,
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        return jsonify({
+            'success': True,
+            'total_meals': len(meal_descriptions),
+            'successful_analyses': len([r for r in results if r['success']]),
+            'failed_analyses': len([r for r in results if not r['success']]),
+            'results': results
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/mcp/nutrition/health-recommendations', methods=['POST'])
+def mcp_get_health_recommendations():
+    """
+    MCP Endpoint: Get health recommendations for nutritional data
+    Accepts nutritional values and returns personalized recommendations
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON data required'}), 400
+        
+        # Extract nutritional values
+        calories = data.get('calories', 0)
+        carbs = data.get('carbs', 0)
+        fats = data.get('fats', 0)
+        protein = data.get('protein', 0)
+        sodium = data.get('sodium', 0)
+        fiber = data.get('fiber', 0)
+        sugar = data.get('sugar', 0)
+        
+        # Generate health recommendations
+        recommendations = generate_health_recommendations(
+            calories, carbs, fats, protein, sodium, fiber, sugar
+        )
+        
+        # Calculate macro percentages
+        protein_percentage = (protein * 4 / calories * 100) if calories > 0 else 0
+        carb_percentage = (carbs * 4 / calories * 100) if calories > 0 else 0
+        fat_percentage = (fats * 9 / calories * 100) if calories > 0 else 0
+        
+        return jsonify({
+            'success': True,
+            'nutritional_data': {
+                'calories': calories,
+                'carbs': carbs,
+                'fats': fats,
+                'protein': protein,
+                'sodium': sodium,
+                'fiber': fiber,
+                'sugar': sugar
+            },
+            'macro_breakdown': {
+                'protein_percentage': round(protein_percentage, 1),
+                'carb_percentage': round(carb_percentage, 1),
+                'fat_percentage': round(fat_percentage, 1)
+            },
+            'health_recommendations': recommendations
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
+    # Debug: Check if CalorieNinjas API key is loaded
+    print(f"DEBUG: CalorieNinjas API Key loaded: {'Yes' if CALORIE_NINJAS_API_KEY else 'No'}")
+    if CALORIE_NINJAS_API_KEY:
+        print(f"DEBUG: API Key starts with: {CALORIE_NINJAS_API_KEY[:10]}...")
+    else:
+        print("WARNING: CalorieNinjas API key not found in environment variables")
+    
     # For local development only
     app.run(debug=True, port=5001)

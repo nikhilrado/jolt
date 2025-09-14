@@ -63,14 +63,17 @@
                 <h3><i class="fas fa-utensils text-success"></i> Nutrition Tracking</h3>
             </div>
             <div class="card-body">
-                <p>Track your meals and get AI-powered nutrition analysis powered by CalAI.</p>
+                <p>Track your meals and get AI-powered nutrition analysis powered by CalorieNinjas.</p>
                 
                 <div class="d-grid gap-2 d-md-flex">
                     <a href="{{ url_for('log_meal') }}" class="btn btn-success">
                         <i class="fas fa-plus"></i> Log Meal
                     </a>
                     <a href="{{ url_for('nutrition_dashboard') }}" class="btn btn-info">
-                        <i class="fas fa-chart-pie"></i> Nutrition Dashboard
+                        <i class="fas fa-chart-pie"></i> Dashboard
+                    </a>
+                    <a href="{{ url_for('nutrition_insights') }}" class="btn btn-warning">
+                        <i class="fas fa-brain"></i> Insights
                     </a>
                 </div>
                 

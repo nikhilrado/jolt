@@ -1,0 +1,292 @@
+{% extends "base.html" %}
+
+{% block title %}Nutrition Insights - Jolt{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-brain"></i> Nutrition Insights & Analysis</h2>
+            <div class="d-flex align-items-center">
+                <!-- Time Period Selector -->
+                <div class="me-3">
+                    <label for="timePeriod" class="form-label me-2"><strong>Time Period:</strong></label>
+                    <select id="timePeriod" class="form-select" onchange="changeTimePeriod()">
+                        {% for period in valid_periods %}
+                        <option value="{{ period }}" {% if period == selected_days %}selected{% endif %}>
+                            {% if period == 7 %}1 Week
+                            {% elif period == 14 %}2 Weeks
+                            {% elif period == 30 %}1 Month
+                            {% elif period == 60 %}2 Months
+                            {% elif period == 90 %}3 Months
+                            {% else %}{{ period }} Days
+                            {% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <a href="{{ url_for('nutrition_dashboard') }}" class="btn btn-info me-2">
+                    <i class="fas fa-chart-pie"></i> Dashboard
+                </a>
+                <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Home
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Summary Stats -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-chart-bar"></i> Analysis Summary ({{ selected_days }} Days)</h4>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-calendar-day text-primary fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.summary.total_days_analyzed }}</h5>
+                                <small class="text-muted">Days Analyzed</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-utensils text-success fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.summary.total_meals_logged }}</h5>
+                                <small class="text-muted">Meals Logged</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-fire text-danger fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.summary.avg_daily_calories }}</h5>
+                                <small class="text-muted">Avg Daily Calories</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-chart-line text-info fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.pattern_analysis.patterns.avg_meals_per_day }}</h5>
+                                <small class="text-muted">Avg Meals/Day</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pattern Analysis -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-chart-pie"></i> Macro Balance</h4>
+            </div>
+            <div class="card-body">
+                {% set macro_balance = insights.pattern_analysis.patterns.macro_balance %}
+                <div class="progress mb-3" style="height: 30px;">
+                    <div class="progress-bar bg-success" style="width: {{ macro_balance.protein_pct }}%">
+                        Protein {{ macro_balance.protein_pct }}%
+                    </div>
+                    <div class="progress-bar bg-warning" style="width: {{ macro_balance.carb_pct }}%">
+                        Carbs {{ macro_balance.carb_pct }}%
+                    </div>
+                    <div class="progress-bar bg-info" style="width: {{ macro_balance.fat_pct }}%">
+                        Fats {{ macro_balance.fat_pct }}%
+                    </div>
+                </div>
+                
+                <div class="row text-center">
+                    <div class="col-4">
+                        <strong>{{ insights.pattern_analysis.patterns.avg_protein }}g</strong><br>
+                        <small class="text-muted">Protein</small>
+                    </div>
+                    <div class="col-4">
+                        <strong>{{ insights.pattern_analysis.patterns.avg_carbs }}g</strong><br>
+                        <small class="text-muted">Carbs</small>
+                    </div>
+                    <div class="col-4">
+                        <strong>{{ insights.pattern_analysis.patterns.avg_fats }}g</strong><br>
+                        <small class="text-muted">Fats</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-chart-line"></i> Consistency Metrics</h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-6">
+                        <h6>Calorie Consistency</h6>
+                        <span class="badge bg-{{ 'success' if insights.pattern_analysis.patterns.calorie_consistency == 'high' else 'warning' if insights.pattern_analysis.patterns.calorie_consistency == 'medium' else 'danger' }}">
+                            {{ insights.pattern_analysis.patterns.calorie_consistency.title() }}
+                        </span>
+                    </div>
+                    <div class="col-6">
+                        <h6>Protein Consistency</h6>
+                        <span class="badge bg-{{ 'success' if insights.pattern_analysis.patterns.protein_consistency == 'high' else 'warning' if insights.pattern_analysis.patterns.protein_consistency == 'medium' else 'danger' }}">
+                            {{ insights.pattern_analysis.patterns.protein_consistency.title() }}
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <h6>Average Daily Calories</h6>
+                    <div class="progress">
+                        <div class="progress-bar bg-primary" style="width: {{ (insights.pattern_analysis.patterns.avg_calories / 3000 * 100) | round(1) }}%">
+                            {{ insights.pattern_analysis.patterns.avg_calories }} cal
+                        </div>
+                    </div>
+                    <small class="text-muted">Target: 2000-2500 calories</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Insights -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-lightbulb"></i> Key Insights</h4>
+            </div>
+            <div class="card-body">
+                {% if insights.pattern_analysis.insights %}
+                    {% for insight in insights.pattern_analysis.insights %}
+                    <div class="alert alert-info mb-2">
+                        <i class="fas fa-info-circle"></i> {{ insight }}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i> Not enough data for insights. Log more meals to get personalized analysis!
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recommendations -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-heart text-success"></i> Personalized Recommendations</h4>
+            </div>
+            <div class="card-body">
+                {% if insights.pattern_analysis.recommendations %}
+                    {% for recommendation in insights.pattern_analysis.recommendations %}
+                    <div class="alert alert-success mb-2">
+                        <i class="fas fa-check-circle"></i> {{ recommendation }}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="alert alert-info">
+                        <i class="fas fa-thumbs-up"></i> Keep up the great work! Your nutrition patterns look good.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Weekly Patterns -->
+{% if insights.weekly_patterns %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-calendar-week"></i> Recent Week Analysis</h4>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-2 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-fire text-danger fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.weekly_patterns.avg_calories | round(0) }}</h5>
+                                <small class="text-muted">Avg Calories</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-drumstick-bite text-success fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.weekly_patterns.avg_protein | round(1) }}g</h5>
+                                <small class="text-muted">Avg Protein</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-bread-slice text-warning fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.weekly_patterns.avg_carbs | round(1) }}g</h5>
+                                <small class="text-muted">Avg Carbs</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-seedling text-info fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.weekly_patterns.avg_fats | round(1) }}g</h5>
+                                <small class="text-muted">Avg Fats</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-6 mb-3">
+                        <div class="stat-item">
+                            <i class="fas fa-utensils text-primary fa-2x"></i>
+                            <div class="mt-2">
+                                <h5>{{ insights.weekly_patterns.total_meals }}</h5>
+                                <small class="text-muted">Total Meals</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="row mt-4">
+    <div class="col-12 text-center">
+        <p class="text-muted">
+            <i class="fas fa-brain"></i> Advanced nutrition analysis powered by CalorieNinjas API
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function changeTimePeriod() {
+    const selectedDays = document.getElementById('timePeriod').value;
+    const currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.set('days', selectedDays);
+    window.location.href = currentUrl.toString();
+}
+</script>
+{% endblock %}
