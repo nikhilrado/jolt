@@ -410,3 +410,4 @@ class SleepEngine:
             'recent_avg_duration': round(recent_avg_duration, 1),
             'recent_avg_tiredness': round(recent_avg_tiredness, 1)
         }
+

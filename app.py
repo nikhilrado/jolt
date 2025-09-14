@@ -2040,7 +2040,160 @@ def api_revoke_token():
             'error': str(e)
         }), 500
 
-# Nutrition and Meal Tracking Routes
+# ============================================================================
+# POKE INTEGRATION ROUTES
+# ============================================================================
+
+@app.route('/poke-settings')
+@require_auth
+def poke_settings():
+    """Poke API key management page"""
+    user_id = session['user']['id']
+    
+    try:
+        # Import Poke credentials manager
+        from poke_credentials_manager import PokeCredentialsManager
+        poke_manager = PokeCredentialsManager(supabase, supabase_admin)
+        
+        # Check if user has Poke credentials
+        try:
+            has_poke_key = poke_manager.has_credentials(user_id)
+        except Exception as e:
+            # Handle case where poke_credentials table doesn't exist yet
+            if 'relation "public.poke_credentials" does not exist' in str(e) or '404' in str(e):
+                flash('Poke integration database tables not found. Please apply the Poke migration first.', 'warning')
+                has_poke_key = False
+            else:
+                raise e
+        
+        # Get recent Poke messages
+        recent_messages = []
+        if has_poke_key:
+            try:
+                messages_result = supabase.table('poke_messages').select('*').eq(
+                    'user_id', user_id
+                ).order('sent_at', desc=True).limit(10).execute()
+                
+                if messages_result.data:
+                    recent_messages = messages_result.data
+            except Exception as e:
+                # Handle case where poke_messages table doesn't exist yet
+                if 'relation "public.poke_messages" does not exist' in str(e) or '404' in str(e):
+                    recent_messages = []
+                else:
+                    raise e
+        
+        return render_template('poke_settings.html', 
+                             user=session['user'],
+                             has_poke_key=has_poke_key,
+                             recent_messages=recent_messages)
+        
+    except Exception as e:
+        flash(f'Error loading Poke settings: {str(e)}', 'error')
+        return redirect(url_for('home'))
+
+@app.route('/poke-settings/save', methods=['POST'])
+@require_auth
+def save_poke_key():
+    """Save user's Poke API key"""
+    user_id = session['user']['id']
+    poke_api_key = request.form.get('poke_api_key', '').strip()
+    
+    if not poke_api_key:
+        flash('Please enter a Poke API key', 'error')
+        return redirect(url_for('poke_settings'))
+    
+    try:
+        # Import managers
+        from poke_credentials_manager import PokeCredentialsManager
+        from poke_service import poke_service
+        
+        poke_manager = PokeCredentialsManager(supabase, supabase_admin)
+        
+        # Test the API key
+        test_result = poke_service.test_api_key(poke_api_key)
+        
+        if test_result['valid']:
+            # Save the API key
+            save_result = poke_manager.store_api_key(user_id, poke_api_key)
+            
+            if save_result['success']:
+                # Mark test message as sent
+                poke_manager.mark_test_message_sent(user_id)
+                flash('✅ Poke API key saved successfully! Test message sent.', 'success')
+            else:
+                flash(f'❌ Error saving API key: {save_result["error"]}', 'error')
+        else:
+            flash(f'❌ Invalid Poke API key: {test_result["message"]}', 'error')
+            
+    except Exception as e:
+        flash(f'Error saving Poke API key: {str(e)}', 'error')
+    
+    return redirect(url_for('poke_settings'))
+
+@app.route('/poke-settings/remove', methods=['POST'])
+@require_auth
+def remove_poke_key():
+    """Remove user's Poke API key"""
+    user_id = session['user']['id']
+    
+    try:
+        # Import Poke credentials manager
+        from poke_credentials_manager import PokeCredentialsManager
+        poke_manager = PokeCredentialsManager(supabase, supabase_admin)
+        
+        # Remove the API key
+        result = poke_manager.remove_credentials(user_id)
+        
+        if result['success']:
+            flash('Poke API key removed successfully', 'info')
+        else:
+            flash(f'Error removing Poke API key: {result["error"]}', 'error')
+        
+    except Exception as e:
+        flash(f'Error removing Poke API key: {str(e)}', 'error')
+    
+    return redirect(url_for('poke_settings'))
+
+@app.route('/poke-settings/test', methods=['POST'])
+@require_auth
+def test_poke_key():
+    """Test user's current Poke API key"""
+    user_id = session['user']['id']
+    
+    try:
+        # Import managers
+        from poke_credentials_manager import PokeCredentialsManager
+        from poke_service import poke_service
+        
+        poke_manager = PokeCredentialsManager(supabase, supabase_admin)
+        
+        # Get current API key
+        poke_api_key = poke_manager.get_api_key(user_id)
+        
+        if not poke_api_key:
+            flash('No Poke API key found. Please add one first.', 'error')
+            return redirect(url_for('poke_settings'))
+        
+        # Test the API key
+        test_result = poke_service.test_api_key(poke_api_key)
+        
+        if test_result['valid']:
+            flash('✅ Poke API key is working! Test message sent.', 'success')
+            # Update last used timestamp
+            poke_manager.update_last_used(user_id)
+        else:
+            flash(f'❌ Poke API key test failed: {test_result["message"]}', 'error')
+            
+    except Exception as e:
+        flash(f'Error testing Poke API key: {str(e)}', 'error')
+    
+    return redirect(url_for('poke_settings'))
+
+# ============================================================================
+# NUTRITION AND MEAL TRACKING ROUTES
+# ============================================================================
+
 @app.route('/nutrition/log-meal', methods=['GET', 'POST'])
 def log_meal():
     """Log a meal using CalAI analysis"""
