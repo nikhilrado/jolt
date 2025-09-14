@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}Strava Scheduler Admin{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <h1 class="mb-4">
+                <i class="fas fa-clock"></i> 
+                Strava Activity Scheduler
+            </h1>
+            
+            <!-- Scheduler Status Card -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-info-circle"></i> 
+                        Scheduler Status
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="scheduler-status">
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="sr-only">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading scheduler status...</p>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3">
+                        <button id="start-scheduler" class="btn btn-success me-2">
+                            <i class="fas fa-play"></i> Start Scheduler
+                        </button>
+                        <button id="stop-scheduler" class="btn btn-danger me-2">
+                            <i class="fas fa-stop"></i> Stop Scheduler
+                        </button>
+                        <button id="refresh-status" class="btn btn-secondary">
+                            <i class="fas fa-refresh"></i> Refresh Status
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Scheduled Jobs Card -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-tasks"></i> 
+                        Scheduled Jobs
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="scheduled-jobs">
+                        <!-- Jobs will be loaded here -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Quick Actions Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-bolt"></i> 
+                        Quick Actions
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <button class="btn btn-primary w-100 mb-2" onclick="triggerJob('check_strava_activities')">
+                                <i class="fas fa-running"></i><br>
+                                Check Activities Now
+                            </button>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-info w-100 mb-2" onclick="triggerJob('send_strava_notifications')">
+                                <i class="fas fa-bell"></i><br>
+                                Send Notifications Now
+                            </button>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-warning w-100 mb-2" onclick="triggerJob('strava_health_check')">
+                                <i class="fas fa-heartbeat"></i><br>
+                                Health Check Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Get API token from somewhere (you might want to generate one for admin use)
+const API_TOKEN = '{{ api_token }}'; // Pass from backend
+
+async function makeAuthenticatedRequest(url, options = {}) {
+    const defaultOptions = {
+        headers: {
+            'Authorization': `Bearer ${API_TOKEN}`,
+            'Content-Type': 'application/json',
+            ...options.headers
+        }
+    };
+    
+    const response = await fetch(url, { ...options, ...defaultOptions });
+    return response.json();
+}
+
+async function loadSchedulerStatus() {
+    try {
+        const data = await makeAuthenticatedRequest('/admin/scheduler/status');
+        
+        if (data.success) {
+            const statusHtml = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Status:</strong> 
+                            <span class="badge ${data.scheduler_running ? 'bg-success' : 'bg-danger'}">
+                                ${data.scheduler_running ? 'Running' : 'Stopped'}
+                            </span>
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Active Jobs:</strong> ${data.jobs.length}</p>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('scheduler-status').innerHTML = statusHtml;
+            displayJobs(data.jobs);
+        } else {
+            document.getElementById('scheduler-status').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle"></i> 
+                    Error: ${data.error}
+                </div>
+            `;
+        }
+    } catch (error) {
+        document.getElementById('scheduler-status').innerHTML = `
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-triangle"></i> 
+                Failed to load status: ${error.message}
+            </div>
+        `;
+    }
+}
+
+function displayJobs(jobs) {
+    if (jobs.length === 0) {
+        document.getElementById('scheduled-jobs').innerHTML = `
+            <p class="text-muted">No scheduled jobs found.</p>
+        `;
+        return;
+    }
+    
+    const jobsHtml = jobs.map(job => `
+        <div class="card mb-2">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-4">
+                        <h6 class="mb-0">${job.name || job.id}</h6>
+                        <small class="text-muted">${job.id}</small>
+                    </div>
+                    <div class="col-md-4">
+                        <small>Next Run:</small><br>
+                        ${job.next_run ? new Date(job.next_run).toLocaleString() : 'Not scheduled'}
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-sm btn-outline-primary" onclick="triggerJob('${job.id}')">
+                            <i class="fas fa-play"></i> Trigger Now
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+    
+    document.getElementById('scheduled-jobs').innerHTML = jobsHtml;
+}
+
+async function startScheduler() {
+    try {
+        const data = await makeAuthenticatedRequest('/admin/scheduler/start', { method: 'POST' });
+        if (data.success) {
+            showAlert('success', 'Scheduler started successfully!');
+            loadSchedulerStatus();
+        } else {
+            showAlert('danger', `Failed to start scheduler: ${data.error}`);
+        }
+    } catch (error) {
+        showAlert('danger', `Error: ${error.message}`);
+    }
+}
+
+async function stopScheduler() {
+    try {
+        const data = await makeAuthenticatedRequest('/admin/scheduler/stop', { method: 'POST' });
+        if (data.success) {
+            showAlert('warning', 'Scheduler stopped.');
+            loadSchedulerStatus();
+        } else {
+            showAlert('danger', `Failed to stop scheduler: ${data.error}`);
+        }
+    } catch (error) {
+        showAlert('danger', `Error: ${error.message}`);
+    }
+}
+
+async function triggerJob(jobId) {
+    try {
+        const data = await makeAuthenticatedRequest(`/admin/scheduler/trigger/${jobId}`, { method: 'POST' });
+        if (data.success) {
+            showAlert('info', `Job '${jobId}' triggered successfully!`);
+        } else {
+            showAlert('danger', `Failed to trigger job: ${data.error}`);
+        }
+    } catch (error) {
+        showAlert('danger', `Error: ${error.message}`);
+    }
+}
+
+function showAlert(type, message) {
+    const alertHtml = `
+        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    
+    // Insert at top of container
+    const container = document.querySelector('.container');
+    container.insertAdjacentHTML('afterbegin', alertHtml);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        const alert = container.querySelector('.alert');
+        if (alert) alert.remove();
+    }, 5000);
+}
+
+// Event listeners
+document.getElementById('start-scheduler').addEventListener('click', startScheduler);
+document.getElementById('stop-scheduler').addEventListener('click', stopScheduler);
+document.getElementById('refresh-status').addEventListener('click', loadSchedulerStatus);
+
+// Load initial status
+loadSchedulerStatus();
+
+// Auto-refresh every 30 seconds
+setInterval(loadSchedulerStatus, 30000);
+</script>
+{% endblock %}
