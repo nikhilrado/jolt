@@ -36,6 +36,16 @@ This document provides a comprehensive list of all API endpoints in the Jolt app
 |--------|----------|-------------|------|
 | `GET` | `/api/strava/activities` | Get Strava activities with detailed data | Token |
 | `GET` | `/api/strava/status` | Get Strava connection status | Token |
+| `GET` | `/strava/activities` | Get Strava activities (Legacy session-based) | Session |
+
+### Webhook Management
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `GET/POST` | `/webhooks/strava` | Handle Strava webhook events | Public |
+| `POST` | `/admin/webhooks/create` | Create webhook subscription | Token |
+| `GET` | `/admin/webhooks/status` | Get webhook subscription status | Token |
+| `DELETE` | `/admin/webhooks/delete/<id>` | Delete webhook subscription | Token |
+| `POST` | `/admin/webhooks/test` | Test webhook processing | Token |
 
 ### Analytics & Performance
 | Method | Endpoint | Description | Auth |
@@ -132,7 +142,7 @@ This document provides a comprehensive list of all API endpoints in the Jolt app
 - **🔧 Admin/Cron**: 7 endpoints
 - **🎯 Web UI**: 3 endpoints
 
-### **Total: 38 API Endpoints**
+### **Total: 43 API Endpoints**
 
 ---
 
@@ -147,8 +157,17 @@ This document provides a comprehensive list of all API endpoints in the Jolt app
 ### **🔧 Technical Changes:**
 - Added `@require_token_auth` decorator for enhanced token validation
 - Updated all endpoints to use `request.current_user_id` instead of `session['user']['id']`
+- Integrated webhook-based Strava monitoring (replacing polling system)
+- Added comprehensive webhook management endpoints
 - Maintained backward compatibility for web UI
 - All existing functionality preserved
+
+### **🆕 New Webhook Features:**
+- **Real-time Strava activity monitoring** via webhooks
+- **Webhook subscription management** with full CRUD operations
+- **Automatic activity processing** without polling
+- **Enhanced scalability** and reduced API rate limiting
+- **Better reliability** with event-driven architecture
 
 ---
 
