@@ -237,4 +237,8 @@ def strava_disconnect():
     return redirect(url_for('home'))
 
 if __name__ == '__main__':
+    # For local development
     app.run(debug=True, port=5000)
+else:
+    # For production (Render, etc.)
+    # Gunicorn will handle the app instance
