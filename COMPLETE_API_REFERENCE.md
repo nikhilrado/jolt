@@ -79,6 +79,16 @@ This document provides a comprehensive list of all API endpoints in the Jolt app
 |--------|----------|-------------|------|
 | `GET` | `/api/user/strava/notifications` | Get user's Strava notifications | Token |
 
+### Sleep Tracking
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `POST` | `/api/sleep/log` | Log sleep data (duration, tiredness, bed/wake times) | Token |
+| `GET` | `/api/sleep/data` | Get sleep data for specified period | Token |
+| `GET` | `/api/sleep/debt` | Calculate sleep debt and get recommendations | Token |
+| `GET` | `/api/sleep/circadian` | Analyze circadian rhythm patterns | Token |
+| `GET` | `/api/sleep/insights` | Get comprehensive sleep insights and recommendations | Token |
+| `GET` | `/api/sleep/dashboard` | Get sleep dashboard with summary metrics | Token |
+
 ## 🍪 Session-Based Endpoints (Legacy - Web UI Only)
 
 ### Web Interface
@@ -142,7 +152,7 @@ This document provides a comprehensive list of all API endpoints in the Jolt app
 - **🔧 Admin/Cron**: 7 endpoints
 - **🎯 Web UI**: 3 endpoints
 
-### **Total: 43 API Endpoints**
+### **Total: 49 API Endpoints**
 
 ---
 
@@ -168,6 +178,79 @@ This document provides a comprehensive list of all API endpoints in the Jolt app
 - **Automatic activity processing** without polling
 - **Enhanced scalability** and reduced API rate limiting
 - **Better reliability** with event-driven architecture
+
+---
+
+## 🛌 **NEW: Sleep Tracking System**
+
+### **Sleep Data Structure:**
+```json
+{
+  "sleep_duration": 8.5,           // Hours of sleep (float)
+  "tiredness": 3,                  // Tiredness level 1-10 (int)
+  "time_going_to_bed": "2024-01-15T22:30:00Z",  // Bedtime (ISO timestamp)
+  "time_waking_up": "2024-01-16T07:00:00Z"      // Wake time (ISO timestamp)
+}
+```
+
+### **Sleep Analysis Features:**
+
+#### **🔍 Sleep Debt Monitoring:**
+- **Total sleep debt calculation** over specified periods
+- **Average debt per night** tracking
+- **Debt trend analysis** (improving/declining/stable)
+- **Personalized recommendations** based on debt levels
+
+#### **🌙 Circadian Rhythm Analysis:**
+- **Sleep schedule consistency** scoring (0-1 scale)
+- **Social jetlag detection** (weekday vs weekend differences)
+- **Optimal bedtime/wake time** recommendations
+- **Rhythm quality assessment** (excellent/good/fair/poor)
+
+#### **📊 Sleep Insights & Recommendations:**
+- **Overall sleep quality** assessment
+- **Sleep pattern trend** analysis
+- **Personalized recommendations** for sleep improvement
+- **Sleep hygiene suggestions** based on individual patterns
+
+#### **📈 Sleep Dashboard Metrics:**
+- **Average sleep duration** and tiredness scores
+- **Sleep consistency** scoring
+- **Recent trend** analysis (improving/declining/stable)
+- **Sleep debt summary** with trend indicators
+
+### **Example API Usage:**
+
+#### **Log Sleep Data:**
+```bash
+curl -X POST -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sleep_duration": 8.5,
+    "tiredness": 3,
+    "time_going_to_bed": "2024-01-15T22:30:00Z",
+    "time_waking_up": "2024-01-16T07:00:00Z"
+  }' \
+  http://localhost:5001/api/sleep/log
+```
+
+#### **Get Sleep Debt Analysis:**
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  http://localhost:5001/api/sleep/debt?days=14
+```
+
+#### **Get Circadian Rhythm Analysis:**
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  http://localhost:5001/api/sleep/circadian?days=14
+```
+
+#### **Get Comprehensive Sleep Insights:**
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  http://localhost:5001/api/sleep/insights?days=30
+```
 
 ---
 

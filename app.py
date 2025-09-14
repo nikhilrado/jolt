@@ -9,6 +9,7 @@ from analytics_engine import AdvancedAnalyticsEngine, WellnessMetrics, TrainingI
 from performance_psychology import PerformancePsychologyEngine
 from strava_token_manager import StravaTokenManager
 from strava_webhook_manager import StravaWebhookManager
+from sleep_engine import SleepEngine
 import hashlib
 import secrets
 from functools import wraps
@@ -34,6 +35,7 @@ supabase = None
 supabase_admin = None
 strava_token_manager = None
 strava_webhook_manager = None
+sleep_engine = None
 
 if SUPABASE_URL and SUPABASE_KEY:
     try:
@@ -47,6 +49,9 @@ if SUPABASE_URL and SUPABASE_KEY:
         # Initialize Strava managers
         strava_token_manager = StravaTokenManager(supabase, supabase_admin)
         strava_webhook_manager = StravaWebhookManager(supabase, supabase_admin, strava_token_manager)
+        
+        # Initialize sleep engine
+        sleep_engine = SleepEngine(supabase)
         
     except Exception as e:
         print(f"Warning: Failed to initialize Supabase client: {e}")
@@ -2549,6 +2554,242 @@ def get_user_notifications():
 
 
         return redirect(url_for('home'))
+
+# ============================================================================
+# SLEEP TRACKING ENDPOINTS
+# ============================================================================
+
+@app.route('/api/sleep/log', methods=['POST'])
+@require_token_auth
+def log_sleep():
+    """Log sleep data for a user"""
+    if not sleep_engine:
+        return jsonify({'error': 'Sleep engine not initialized'}), 500
+    
+    try:
+        user_id = request.current_user_id
+        sleep_data = request.get_json()
+        
+        if not sleep_data:
+            return jsonify({'error': 'Sleep data is required'}), 400
+        
+        # Validate required fields
+        required_fields = ['sleep_duration', 'tiredness', 'time_going_to_bed', 'time_waking_up']
+        for field in required_fields:
+            if field not in sleep_data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Validate data types and ranges
+        if not isinstance(sleep_data['sleep_duration'], (int, float)) or sleep_data['sleep_duration'] < 0:
+            return jsonify({'error': 'Sleep duration must be a positive number'}), 400
+        
+        if not isinstance(sleep_data['tiredness'], int) or not (1 <= sleep_data['tiredness'] <= 10):
+            return jsonify({'error': 'Tiredness must be an integer between 1 and 10'}), 400
+        
+        # Log sleep data
+        result = sleep_engine.log_sleep(user_id, sleep_data)
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'message': 'Sleep data logged successfully',
+                'sleep_record': result['sleep_record']
+            })
+        else:
+            return jsonify({'error': result['error']}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sleep/data')
+@require_token_auth
+def get_sleep_data():
+    """Get sleep data for a user"""
+    if not sleep_engine:
+        return jsonify({'error': 'Sleep engine not initialized'}), 500
+    
+    try:
+        user_id = request.current_user_id
+        days = request.args.get('days', 30, type=int)
+        
+        # Validate days parameter
+        if days < 1 or days > 365:
+            return jsonify({'error': 'Days must be between 1 and 365'}), 400
+        
+        sleep_data = sleep_engine.get_sleep_data(user_id, days)
+        
+        return jsonify({
+            'success': True,
+            'analysis_period_days': days,
+            'total_sleep_sessions': len(sleep_data),
+            'sleep_data': sleep_data
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sleep/debt')
+@require_token_auth
+def get_sleep_debt():
+    """Get sleep debt analysis for a user"""
+    if not sleep_engine:
+        return jsonify({'error': 'Sleep engine not initialized'}), 500
+    
+    try:
+        user_id = request.current_user_id
+        days = request.args.get('days', 14, type=int)
+        
+        # Validate days parameter
+        if days < 1 or days > 90:
+            return jsonify({'error': 'Days must be between 1 and 90'}), 400
+        
+        sleep_debt = sleep_engine.calculate_sleep_debt(user_id, days)
+        
+        if 'error' in sleep_debt:
+            return jsonify({'error': sleep_debt['error']}), 500
+        
+        return jsonify({
+            'success': True,
+            'analysis_period_days': days,
+            'sleep_debt_analysis': sleep_debt
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sleep/circadian')
+@require_token_auth
+def get_circadian_analysis():
+    """Get circadian rhythm analysis for a user"""
+    if not sleep_engine:
+        return jsonify({'error': 'Sleep engine not initialized'}), 500
+    
+    try:
+        user_id = request.current_user_id
+        days = request.args.get('days', 14, type=int)
+        
+        # Validate days parameter
+        if days < 1 or days > 90:
+            return jsonify({'error': 'Days must be between 1 and 90'}), 400
+        
+        circadian_analysis = sleep_engine.analyze_circadian_rhythm(user_id, days)
+        
+        if 'error' in circadian_analysis:
+            return jsonify({'error': circadian_analysis['error']}), 500
+        
+        return jsonify({
+            'success': True,
+            'analysis_period_days': days,
+            'circadian_rhythm_analysis': circadian_analysis
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sleep/insights')
+@require_token_auth
+def get_sleep_insights():
+    """Get comprehensive sleep insights and recommendations"""
+    if not sleep_engine:
+        return jsonify({'error': 'Sleep engine not initialized'}), 500
+    
+    try:
+        user_id = request.current_user_id
+        days = request.args.get('days', 30, type=int)
+        
+        # Validate days parameter
+        if days < 1 or days > 365:
+            return jsonify({'error': 'Days must be between 1 and 365'}), 400
+        
+        insights = sleep_engine.get_sleep_insights(user_id, days)
+        
+        if 'error' in insights:
+            return jsonify({'error': insights['error']}), 500
+        
+        return jsonify({
+            'success': True,
+            'sleep_insights': insights
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sleep/dashboard')
+@require_token_auth
+def get_sleep_dashboard():
+    """Get sleep dashboard data with summary metrics"""
+    if not sleep_engine:
+        return jsonify({'error': 'Sleep engine not initialized'}), 500
+    
+    try:
+        user_id = request.current_user_id
+        days = request.args.get('days', 7, type=int)
+        
+        # Validate days parameter
+        if days < 1 or days > 90:
+            return jsonify({'error': 'Days must be between 1 and 90'}), 400
+        
+        # Get sleep data
+        sleep_data = sleep_engine.get_sleep_data(user_id, days)
+        
+        if not sleep_data:
+            return jsonify({
+                'success': True,
+                'analysis_period_days': days,
+                'status': 'no_data',
+                'message': 'No sleep data available for the specified period',
+                'recommendations': ['Start logging your sleep to track your sleep patterns']
+            })
+        
+        # Calculate summary metrics
+        sleep_durations = [record['sleep_duration'] for record in sleep_data]
+        tiredness_scores = [record['tiredness'] for record in sleep_data]
+        
+        avg_sleep_duration = statistics.mean(sleep_durations)
+        avg_tiredness = statistics.mean(tiredness_scores)
+        min_sleep = min(sleep_durations)
+        max_sleep = max(sleep_durations)
+        
+        # Get recent trends (last 3 days vs previous 3 days)
+        recent_trend = None
+        if len(sleep_data) >= 6:
+            recent_3 = sleep_data[:3]
+            previous_3 = sleep_data[3:6]
+            
+            recent_avg = statistics.mean([r['sleep_duration'] for r in recent_3])
+            previous_avg = statistics.mean([r['sleep_duration'] for r in previous_3])
+            
+            if recent_avg > previous_avg + 0.5:
+                recent_trend = 'improving'
+            elif recent_avg < previous_avg - 0.5:
+                recent_trend = 'declining'
+            else:
+                recent_trend = 'stable'
+        
+        # Get sleep debt for context
+        sleep_debt = sleep_engine.calculate_sleep_debt(user_id, days)
+        
+        return jsonify({
+            'success': True,
+            'analysis_period_days': days,
+            'total_sleep_sessions': len(sleep_data),
+            'summary_metrics': {
+                'average_sleep_duration': round(avg_sleep_duration, 1),
+                'average_tiredness_score': round(avg_tiredness, 1),
+                'min_sleep_duration': round(min_sleep, 1),
+                'max_sleep_duration': round(max_sleep, 1),
+                'sleep_consistency': round(1 - (statistics.stdev(sleep_durations) / avg_sleep_duration), 2) if len(sleep_durations) > 1 else 1.0
+            },
+            'recent_trend': recent_trend,
+            'sleep_debt_summary': {
+                'total_debt': sleep_debt.get('total_debt', 0),
+                'debt_trend': sleep_debt.get('debt_trend', 'unknown')
+            },
+            'last_sleep_session': sleep_data[0] if sleep_data else None
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Debug: Check if CalorieNinjas API key is loaded
