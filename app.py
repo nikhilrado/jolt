@@ -8,8 +8,7 @@ import statistics
 from analytics_engine import AdvancedAnalyticsEngine, WellnessMetrics, TrainingInsights
 from performance_psychology import PerformancePsychologyEngine
 from strava_token_manager import StravaTokenManager
-from strava_activity_monitor import StravaActivityMonitor
-from strava_scheduler import StravaActivityScheduler
+from strava_webhook_manager import StravaWebhookManager
 import hashlib
 import secrets
 from functools import wraps
@@ -34,8 +33,7 @@ SUPABASE_SERVICE_KEY = os.getenv('SUPABASE_SERVICE_KEY')
 supabase = None
 supabase_admin = None
 strava_token_manager = None
-strava_activity_monitor = None
-strava_scheduler = None
+strava_webhook_manager = None
 
 if SUPABASE_URL and SUPABASE_KEY:
     try:
@@ -48,10 +46,7 @@ if SUPABASE_URL and SUPABASE_KEY:
         
         # Initialize Strava managers
         strava_token_manager = StravaTokenManager(supabase, supabase_admin)
-        strava_activity_monitor = StravaActivityMonitor(supabase, supabase_admin)
-        
-        # Initialize scheduler (but don't start jobs yet - wait until app is fully loaded)
-        strava_scheduler = StravaActivityScheduler(app, strava_activity_monitor)
+        strava_webhook_manager = StravaWebhookManager(supabase, supabase_admin, strava_token_manager)
         
     except Exception as e:
         print(f"Warning: Failed to initialize Supabase client: {e}")
@@ -368,6 +363,130 @@ def strava_disconnect():
         flash(f'Error disconnecting Strava: {str(e)}', 'error')
     
     return redirect(url_for('home'))
+
+# ============================================================================
+# STRAVA WEBHOOK ENDPOINTS
+# ============================================================================
+
+@app.route('/webhooks/strava', methods=['GET', 'POST'])
+def strava_webhook():
+    """
+    Handle Strava webhook events
+    GET: Webhook subscription validation
+    POST: Actual webhook events
+    """
+    if not strava_webhook_manager:
+        return jsonify({'error': 'Webhook manager not initialized'}), 500
+    
+    if request.method == 'GET':
+        # Handle subscription validation
+        result = strava_webhook_manager.handle_subscription_validation(request.args)
+        
+        if 'error' in result:
+            return jsonify(result), 400
+        
+        return jsonify(result), 200
+    
+    elif request.method == 'POST':
+        # Handle webhook event
+        try:
+            event_data = request.get_json()
+            
+            if not event_data:
+                return jsonify({'error': 'No JSON data received'}), 400
+            
+            # Process the webhook event
+            result = strava_webhook_manager.handle_webhook_event(event_data)
+            
+            # Always return 200 OK to acknowledge receipt (required by Strava)
+            return jsonify(result), 200
+            
+        except Exception as e:
+            # Still return 200 to acknowledge receipt, but log the error
+            print(f"Error processing webhook: {e}")
+            return jsonify({'status': 'error', 'message': str(e)}), 200
+
+# ============================================================================
+# WEBHOOK MANAGEMENT ENDPOINTS (API TOKEN REQUIRED)
+# ============================================================================
+
+@app.route('/admin/webhooks/create', methods=['POST'])
+@require_api_auth
+def create_webhook_subscription():
+    """Create a Strava webhook subscription"""
+    if not strava_webhook_manager:
+        return jsonify({'error': 'Webhook manager not initialized'}), 500
+    
+    try:
+        # Get the callback URL
+        callback_url = request.json.get('callback_url')
+        
+        if not callback_url:
+            # Auto-generate callback URL based on request
+            base_url = request.url_root.rstrip('/')
+            callback_url = f"{base_url}/webhooks/strava"
+        
+        result = strava_webhook_manager.create_webhook_subscription(callback_url)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/webhooks/status', methods=['GET'])
+@require_api_auth
+def get_webhook_status():
+    """Get current webhook subscription status"""
+    if not strava_webhook_manager:
+        return jsonify({'error': 'Webhook manager not initialized'}), 500
+    
+    try:
+        result = strava_webhook_manager.get_webhook_subscription()
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/webhooks/delete/<int:subscription_id>', methods=['DELETE'])
+@require_api_auth
+def delete_webhook_subscription(subscription_id):
+    """Delete a webhook subscription"""
+    if not strava_webhook_manager:
+        return jsonify({'error': 'Webhook manager not initialized'}), 500
+    
+    try:
+        result = strava_webhook_manager.delete_webhook_subscription(subscription_id)
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/webhooks/test', methods=['POST'])
+@require_api_auth
+def test_webhook():
+    """Test webhook processing with sample data"""
+    if not strava_webhook_manager:
+        return jsonify({'error': 'Webhook manager not initialized'}), 500
+    
+    try:
+        # Sample webhook event for testing
+        test_event = {
+            "object_type": "activity",
+            "object_id": 12345678,
+            "aspect_type": "create",
+            "owner_id": 98765432,
+            "subscription_id": 1,
+            "event_time": 1672531200
+        }
+        
+        result = strava_webhook_manager.handle_webhook_event(test_event)
+        return jsonify({
+            'test_event': test_event,
+            'result': result
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/strava/activities')
 def strava_activities():
@@ -1171,6 +1290,7 @@ def submit_wellness_psychology():
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
+        user_id = session['user']['id']
         wellness_data = request.get_json()
         
         access_token = get_user_strava_token(user_id)
@@ -2052,76 +2172,8 @@ def mcp_get_health_recommendations():
         return jsonify({'error': str(e)}), 500
 
 # ============================================================================
-# CRON JOB ENDPOINTS FOR STRAVA ACTIVITY MONITORING
+# API STATUS ENDPOINTS
 # ============================================================================
-
-@app.route('/cron/check-activities', methods=['POST'])
-@require_api_auth
-def cron_check_activities():
-    """
-    Cron job endpoint to check for new Strava activities across all users.
-    This should be called every 15 minutes by an external cron service.
-    Requires API token authentication.
-    """
-    if not strava_activity_monitor:
-        return jsonify({'error': 'Strava activity monitor not initialized'}), 500
-    
-    try:
-        # Check for new activities across all users
-        notifications = strava_activity_monitor.check_all_users()
-        
-        return jsonify({
-            'success': True,
-            'message': f'Checked activities for all users',
-            'new_activities_found': len(notifications),
-            'notifications': [
-                {
-                    'user_id': n['user_id'],
-                    'activity_id': n['activity_id'],
-                    'activity_type': n['activity_type'],
-                    'activity_name': n['activity_name'],
-                    'message': n['message']
-                } for n in notifications
-            ]
-        })
-        
-    except Exception as e:
-        return jsonify({'error': f'Failed to check activities: {str(e)}'}), 500
-
-@app.route('/cron/send-notifications', methods=['POST'])
-@require_api_auth
-def cron_send_notifications():
-    """
-    Send pending activity notifications.
-    This endpoint can be used to process and send notifications
-    for activities that were detected but not yet notified.
-    """
-    if not strava_activity_monitor:
-        return jsonify({'error': 'Strava activity monitor not initialized'}), 500
-    
-    try:
-        # Get all pending notifications
-        pending_notifications = strava_activity_monitor.get_pending_notifications()
-        
-        sent_count = 0
-        for notification in pending_notifications:
-            # Here you would implement your notification logic
-            # For example: send email, push notification, webhook, etc.
-            
-            # For now, we'll just mark them as sent
-            # You can extend this to actually send notifications
-            if strava_activity_monitor.mark_notification_sent(notification['id']):
-                sent_count += 1
-                print(f"Notification sent for activity {notification['strava_activity_id']}")
-        
-        return jsonify({
-            'success': True,
-            'message': f'Processed {len(pending_notifications)} notifications',
-            'sent_count': sent_count
-        })
-        
-    except Exception as e:
-        return jsonify({'error': f'Failed to send notifications: {str(e)}'}), 500
 
 @app.route('/api/strava/status', methods=['GET'])
 @require_api_auth
@@ -2152,145 +2204,6 @@ def api_strava_status():
     except Exception as e:
         return jsonify({'error': f'Failed to get status: {str(e)}'}), 500
 
-@app.route('/api/user/strava/notifications', methods=['GET'])
-@require_auth
-def get_user_notifications():
-    """
-    Get activity notifications for the current user.
-    """
-    if not strava_activity_monitor:
-        return jsonify({'error': 'Strava activity monitor not initialized'}), 500
-    
-    user_id = session['user']['id']
-    
-    try:
-        # Get all notifications for this user (both sent and unsent)
-        all_notifications = strava_activity_monitor.get_pending_notifications(user_id)
-        
-        # Also get sent notifications from the last 7 days
-        # (you might want to modify get_pending_notifications to include sent ones)
-        
-        return jsonify({
-            'success': True,
-            'notifications': [
-                {
-                    'id': n['id'],
-                    'activity_id': n['strava_activity_id'],
-                    'activity_type': n['activity_type'],
-                    'activity_name': n['activity_name'],
-                    'notification_sent': n['notification_sent'],
-                    'created_at': n['created_at']
-                } for n in all_notifications
-            ]
-        })
-        
-    except Exception as e:
-        return jsonify({'error': f'Failed to get notifications: {str(e)}'}), 500
-
-# ============================================================================
-# SCHEDULER MANAGEMENT ENDPOINTS
-# ============================================================================
-
-@app.route('/admin/scheduler/status', methods=['GET'])
-@require_api_auth
-def scheduler_status():
-    """Get status of all scheduled jobs"""
-    if not strava_scheduler:
-        return jsonify({'error': 'Scheduler not initialized'}), 500
-    
-    try:
-        jobs = strava_scheduler.get_job_status()
-        return jsonify({
-            'success': True,
-            'scheduler_running': strava_scheduler.scheduler.running,
-            'jobs': jobs
-        })
-    except Exception as e:
-        return jsonify({'error': f'Failed to get scheduler status: {str(e)}'}), 500
-
-@app.route('/admin/scheduler/start', methods=['POST'])
-@require_api_auth
-def start_scheduler():
-    """Start the Strava activity monitoring scheduler"""
-    if not strava_scheduler:
-        return jsonify({'error': 'Scheduler not initialized'}), 500
-    
-    try:
-        if strava_scheduler.start_monitoring():
-            return jsonify({
-                'success': True,
-                'message': 'Scheduler started successfully'
-            })
-        else:
-            return jsonify({'error': 'Failed to start scheduler'}), 500
-    except Exception as e:
-        return jsonify({'error': f'Failed to start scheduler: {str(e)}'}), 500
-
-@app.route('/admin/scheduler/stop', methods=['POST'])
-@require_api_auth
-def stop_scheduler():
-    """Stop the Strava activity monitoring scheduler"""
-    if not strava_scheduler:
-        return jsonify({'error': 'Scheduler not initialized'}), 500
-    
-    try:
-        if strava_scheduler.stop_monitoring():
-            return jsonify({
-                'success': True,
-                'message': 'Scheduler stopped successfully'
-            })
-        else:
-            return jsonify({'error': 'Failed to stop scheduler'}), 500
-    except Exception as e:
-        return jsonify({'error': f'Failed to stop scheduler: {str(e)}'}), 500
-
-@app.route('/admin/scheduler/trigger/<job_id>', methods=['POST'])
-@require_api_auth
-def trigger_job(job_id):
-    """Manually trigger a specific scheduled job"""
-    if not strava_scheduler:
-        return jsonify({'error': 'Scheduler not initialized'}), 500
-    
-    try:
-        if strava_scheduler.trigger_job_manually(job_id):
-            return jsonify({
-                'success': True,
-                'message': f'Job {job_id} triggered successfully'
-            })
-        else:
-            return jsonify({'error': f'Failed to trigger job {job_id}'}), 500
-    except Exception as e:
-        return jsonify({'error': f'Failed to trigger job: {str(e)}'}), 500
-
-@app.route('/admin/scheduler')
-@require_auth
-def scheduler_admin():
-    """Scheduler administration interface"""
-    # For demo purposes, we'll pass a placeholder token
-    # In production, you might want to generate a specific admin token
-    # or require additional authentication
-    user_id = session['user']['id']
-    
-    # Get user's API token for admin interface
-    try:
-        result = supabase.table('personal_access_tokens').select('id').eq(
-            'user_id', user_id
-        ).eq('is_active', True).single().execute()
-        
-        if result.data:
-            # User has a token - they can use the admin interface
-            return render_template('scheduler_admin.html', 
-                                 user=session['user'],
-                                 has_api_token=True)
-        else:
-            # User needs to generate an API token first
-            flash('Please generate an API token first to access the scheduler admin.', 'warning')
-            return redirect(url_for('api_token'))
-            
-    except Exception as e:
-        flash('Error checking API token. Please try again.', 'error')
-        return redirect(url_for('home'))
-
 if __name__ == '__main__':
     # Debug: Check if CalorieNinjas API key is loaded
     print(f"DEBUG: CalorieNinjas API Key loaded: {'Yes' if CALORIE_NINJAS_API_KEY else 'No'}")
@@ -2299,13 +2212,8 @@ if __name__ == '__main__':
     else:
         print("WARNING: CalorieNinjas API key not found in environment variables")
     
-    # Start the Strava scheduler if enabled
-    if strava_scheduler:
-        print("Starting Strava activity monitoring scheduler...")
-        if strava_scheduler.start_monitoring():
-            print("✅ Strava scheduler started successfully")
-        else:
-            print("❌ Failed to start Strava scheduler")
+    print("🚀 Starting Jolt with webhook-based Strava integration")
+    print("✅ No more polling - webhooks provide real-time notifications!")
     
-    # For local development only
-    app.run(debug=True, port=5001)
+    # Run the Flask app
+    app.run(debug=True, port=5000)
