@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Jolt{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="jumbotron bg-primary text-white rounded p-4 mb-4">
+            <h1 class="display-4">
+                <i class="fas fa-bolt text-warning"></i> Welcome to Jolt!
+            </h1>
+            <p class="lead">Hello, {{ user.email }}! Ready to supercharge your running data?</p>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h3><i class="fab fa-strava text-danger"></i> Strava Integration</h3>
+            </div>
+            <div class="card-body">
+                {% if strava_connected %}
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle"></i> Your Strava account is connected!
+                    </div>
+                    
+                    <div class="d-grid gap-2 d-md-flex">
+                        <a href="{{ url_for('strava_activities') }}" class="btn btn-primary">
+                            <i class="fas fa-running"></i> View Activities
+                        </a>
+                        <a href="{{ url_for('strava_disconnect') }}" class="btn btn-outline-danger">
+                            <i class="fas fa-unlink"></i> Disconnect Strava
+                        </a>
+                    </div>
+                {% else %}
+                    <p>Connect your Strava account to start analyzing your running data with Jolt.</p>
+                    <p class="text-muted">We'll access your activity data to provide insights and analytics.</p>
+                    
+                    <a href="{{ url_for('strava_connect') }}" class="btn btn-danger btn-lg">
+                        <i class="fab fa-strava"></i> Connect with Strava
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-info-circle"></i> About Jolt</h5>
+            </div>
+            <div class="card-body">
+                <p>Jolt helps you:</p>
+                <ul class="list-unstyled">
+                    <li><i class="fas fa-chart-line text-success"></i> Analyze your running data</li>
+                    <li><i class="fas fa-trophy text-warning"></i> Track your progress</li>
+                    <li><i class="fas fa-bolt text-primary"></i> Get performance insights</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5><i class="fas fa-user"></i> Account</h5>
+            </div>
+            <div class="card-body">
+                <p><strong>Email:</strong> {{ user.email }}</p>
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
