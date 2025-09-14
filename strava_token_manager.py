@@ -32,8 +32,8 @@ class StravaTokenManager:
                 'updated_at': datetime.now(timezone.utc).isoformat()
             }
             
-            # Use upsert to handle updates if credentials already exist
-            result = self.supabase.table('strava_credentials').upsert(
+            # Use admin client to bypass RLS for token storage
+            result = self.supabase_admin.table('strava_credentials').upsert(
                 credentials_data,
                 on_conflict='user_id'
             ).execute()
@@ -47,7 +47,8 @@ class StravaTokenManager:
     def get_credentials(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get Strava credentials for a user"""
         try:
-            result = self.supabase.table('strava_credentials').select('*').eq(
+            # Use admin client to bypass RLS for webhook processing
+            result = self.supabase_admin.table('strava_credentials').select('*').eq(
                 'user_id', user_id
             ).eq('is_active', True).execute()
             
