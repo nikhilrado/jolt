@@ -59,6 +59,9 @@ class StravaWebhookManager:
             
             self.logger.info(f"Received webhook: {object_type}.{aspect_type} for object {object_id} by athlete {owner_id}")
             
+            # 📝 LOG INCOMING WEBHOOK: Add webhook event to activity_notifications for debugging
+            self._log_webhook_event(event_data)
+            
             # We're mainly interested in activity events
             if object_type == 'activity':
                 return self._handle_activity_event(
@@ -231,9 +234,12 @@ class StravaWebhookManager:
                 'strava_activity_id': activity_data.get('id'),
                 'activity_type': activity_type,
                 'activity_name': activity_name,
-                'distance_meters': activity_data.get('distance', 0),
-                'moving_time_seconds': moving_time,
-                'message': insights['completion_message'],
+                'activity_data': {
+                    'distance_meters': activity_data.get('distance', 0),
+                    'moving_time_seconds': moving_time,
+                    'activity_details': activity_data,
+                    'insights': insights
+                },
                 'notification_sent': False,
                 'created_at': datetime.utcnow().isoformat()
             }
@@ -443,3 +449,45 @@ class StravaWebhookManager:
                 
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def _log_webhook_event(self, event_data: Dict[str, Any]) -> None:
+        """
+        Log incoming webhook event to activity_notifications table for debugging
+        """
+        try:
+            object_type = event_data.get('object_type', 'unknown')
+            aspect_type = event_data.get('aspect_type', 'unknown') 
+            object_id = event_data.get('object_id', 0)
+            owner_id = event_data.get('owner_id')
+            
+            # Get our internal user ID from Strava athlete ID
+            user_id = None
+            if owner_id:
+                user_id = self._get_user_id_by_athlete_id(owner_id)
+            
+            # Create a webhook log entry in activity_notifications
+            webhook_log_data = {
+                'user_id': user_id,  # May be None if user not found
+                'strava_activity_id': object_id if object_type == 'activity' else 0,
+                'activity_type': f"WEBHOOK_{object_type.upper()}_{aspect_type.upper()}",
+                'activity_name': f"Webhook: {object_type}.{aspect_type}",
+                'activity_data': {
+                    'webhook_event': event_data,
+                    'event_received_at': datetime.utcnow().isoformat(),
+                    'object_type': object_type,
+                    'aspect_type': aspect_type,
+                    'object_id': object_id,
+                    'owner_id': owner_id
+                },
+                'notification_sent': False,  # This is just a log entry
+                'created_at': datetime.utcnow().isoformat()
+            }
+            
+            # Insert webhook log (always use admin client for webhook events to bypass RLS)
+            self.supabase_admin.table('activity_notifications').insert(webhook_log_data).execute()
+                
+            self.logger.info(f"📝 Webhook event logged: {object_type}.{aspect_type} for object {object_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Error logging webhook event: {e}")
+            # Don't fail the webhook processing if logging fails
