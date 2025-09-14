@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block title %}Poke Settings - Jolt{% endblock %}
+
+{% block extra_head %}
+<style>
+    .poke-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 12px;
+        padding: 2rem;
+        color: white;
+        margin-bottom: 2rem;
+    }
+    
+    .poke-status {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+    
+    .status-icon {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+    }
+    
+    .status-connected {
+        background-color: #10b981;
+    }
+    
+    .status-disconnected {
+        background-color: #ef4444;
+    }
+    
+    .poke-form {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 2rem;
+    }
+    
+    .message-card {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+    
+    .message-time {
+        color: #64748b;
+        font-size: 0.875rem;
+    }
+    
+    .message-activity {
+        font-weight: 600;
+        color: #1e293b;
+        margin-bottom: 0.5rem;
+    }
+    
+    .message-text {
+        color: #475569;
+        line-height: 1.5;
+    }
+    
+    .btn-poke {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        border: none;
+        color: white;
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        font-weight: 600;
+        transition: all 0.2s;
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+    }
+    
+    .btn-poke:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 12px rgba(16, 185, 129, 0.4);
+        color: white;
+        background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    }
+    
+    .btn-danger {
+        background-color: #ef4444;
+        border: none;
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-weight: 500;
+    }
+    
+    .btn-outline {
+        background: transparent;
+        border: 2px solid #667eea;
+        color: #667eea;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-weight: 500;
+    }
+    
+    .info-box {
+        background: #f0f9ff;
+        border: 1px solid #0ea5e9;
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .info-box h4 {
+        color: #0369a1;
+        margin-bottom: 0.5rem;
+    }
+    
+    .info-box p {
+        color: #0369a1;
+        margin: 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <h1 class="text-center mb-4">📱 Poke Integration</h1>
+            
+            <!-- Status Card -->
+            <div class="poke-card">
+                <div class="poke-status">
+                    <div class="status-icon {{ 'status-connected' if has_poke_key else 'status-disconnected' }}"></div>
+                    <strong>
+                        {% if has_poke_key %}
+                            ✅ Connected to Poke
+                        {% else %}
+                            ❌ Not connected to Poke
+                        {% endif %}
+                    </strong>
+                </div>
+                
+                {% if has_poke_key %}
+                    <p>Great! You'll receive messages on Poke after completing runs. We'll ask how your workout went and track your responses.</p>
+                {% else %}
+                    <p>Connect your Poke account to receive personalized messages after each run. Share your thoughts and track your training journey!</p>
+                {% endif %}
+            </div>
+            
+            <!-- Info Box -->
+            <div class="info-box">
+                <h4>🔗 How to get your Poke API key:</h4>
+                <p>
+                    1. Visit <a href="https://poke.com/settings/advanced" target="_blank">https://poke.com/settings/advanced</a><br>
+                    2. Create a new API key<br>
+                    3. Copy the key and paste it below
+                </p>
+            </div>
+            
+            <!-- API Key Form -->
+            <div class="poke-form">
+                <h3>API Key Management</h3>
+                
+                {% if has_poke_key %}
+                    <p class="text-success">✅ You have a Poke API key saved.</p>
+                    
+                    <div class="d-flex gap-2 mb-3">
+                        <form method="POST" action="{{ url_for('test_poke_key') }}" style="display: inline;">
+                            <button type="submit" class="btn btn-outline">Test Connection</button>
+                        </form>
+                        
+                        <form method="POST" action="{{ url_for('remove_poke_key') }}" style="display: inline;" 
+                              onsubmit="return confirm('Are you sure you want to remove your Poke API key?')">
+                            <button type="submit" class="btn btn-danger">Remove Key</button>
+                        </form>
+                    </div>
+                    
+                    <hr>
+                    <h5>Update API Key:</h5>
+                {% else %}
+                    <h5>Add Your Poke API Key:</h5>
+                {% endif %}
+                
+                <form method="POST" action="{{ url_for('save_poke_key') }}">
+                    <div class="mb-3">
+                        <label for="poke_api_key" class="form-label">Poke API Key</label>
+                        <input type="password" class="form-control" id="poke_api_key" name="poke_api_key" 
+                               placeholder="Enter your Poke API key" required>
+                        <div class="form-text">Your API key is encrypted and stored securely.</div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-poke">
+                        {% if has_poke_key %}Update{% else %}Save{% endif %} API Key
+                    </button>
+                </form>
+            </div>
+            
+            <!-- Recent Messages -->
+            {% if recent_messages %}
+            <div class="mt-4">
+                <h3>📬 Recent Poke Messages</h3>
+                <p class="text-muted">Messages sent to you after completing runs:</p>
+                
+                {% for message in recent_messages %}
+                <div class="message-card">
+                    <div class="message-activity">
+                        🏃‍♂️ {{ message.activity_type }}: {{ message.activity_name }}
+                    </div>
+                    <div class="message-text">{{ message.message_text }}</div>
+                    <div class="message-time">
+                        Sent {{ message.sent_at.strftime('%B %d, %Y at %I:%M %p') }}
+                        {% if message.response_received %}
+                            • <span class="text-success">Response received</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            
+            <!-- Instructions -->
+            <div class="mt-4 p-3 bg-light rounded">
+                <h4>💡 How it works:</h4>
+                <ol>
+                    <li>Complete a run and sync with Strava</li>
+                    <li>Jolt detects your activity via webhook</li>
+                    <li>You receive a Poke message asking about your run</li>
+                    <li>Reply with your thoughts and feelings</li>
+                    <li>Your responses help improve future training insights!</li>
+                </ol>
+            </div>
+            
+            <div class="text-center mt-4">
+                <a href="{{ url_for('home') }}" class="btn btn-secondary">← Back to Dashboard</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

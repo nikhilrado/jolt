@@ -203,11 +203,9 @@ class StravaWebhookManager:
         """
         Handle completion of a run activity.
         This is the main function called when a new activity is detected.
+        Now includes Poke integration for post-run messages.
         """
         try:
-            # For now, let's create a simple insight without the psychology engine
-            # We can enhance this later when the psychology engine is updated
-            
             # Extract basic activity metrics
             activity_type = activity_data.get('type', 'Run')
             activity_name = activity_data.get('name', 'Morning Run')
@@ -243,20 +241,110 @@ class StravaWebhookManager:
             # Store in database
             response = self.supabase_admin.table('activity_notifications').insert(notification_data).execute()
             
+            result = {
+                'status': 'success',
+                'message': insights['completion_message'],
+                'insights': insights
+            }
+            
             if response.data:
+                result['notification_id'] = response.data[0]['id']
                 self.logger.info(f"🎯 Run complete processed for user {user_id}: {activity_name}")
-                return {
-                    'status': 'success',
-                    'message': insights['completion_message'],
-                    'insights': insights,
-                    'notification_id': response.data[0]['id']
-                }
             else:
-                return {'status': 'error', 'message': 'Failed to store notification'}
+                result['warning'] = 'Failed to store notification'
+            
+            # 🔥 NEW: Send Poke message if user has API key
+            poke_result = self._send_poke_message(user_id, activity_data)
+            if poke_result:
+                result['poke_message'] = poke_result
+            
+            return result
                 
         except Exception as e:
             self.logger.error(f"Error in run_complete: {e}")
             return {'status': 'error', 'message': f'Error processing run completion: {str(e)}'}
+    
+    def _send_poke_message(self, user_id: str, activity_data: dict) -> Optional[dict]:
+        """
+        Send a Poke message to the user asking about their run
+        """
+        try:
+            # Import Poke credentials manager
+            from poke_credentials_manager import PokeCredentialsManager
+            
+            # Get user's Poke API key
+            poke_manager = PokeCredentialsManager(self.supabase, self.supabase_admin)
+            poke_api_key = poke_manager.get_api_key(user_id)
+            
+            if not poke_api_key:
+                self.logger.info(f"No Poke API key found for user {user_id}")
+                return None
+            
+            # Import Poke service
+            from poke_service import poke_service
+            
+            # Send message
+            poke_result = poke_service.send_run_completion_message(poke_api_key, activity_data)
+            
+            # Update last used timestamp
+            if poke_result['success']:
+                poke_manager.update_last_used(user_id)
+            
+            # Store Poke message record
+            poke_message_data = {
+                'user_id': user_id,
+                'strava_activity_id': activity_data.get('id'),
+                'activity_type': activity_data.get('type', 'Run'),
+                'activity_name': activity_data.get('name', 'Morning Run'),
+                'message_text': self._generate_poke_message_text(activity_data),
+                'poke_response': poke_result,
+                'sent_at': datetime.utcnow().isoformat()
+            }
+            
+            # Store in database
+            self.supabase_admin.table('poke_messages').insert(poke_message_data).execute()
+            
+            if poke_result['success']:
+                self.logger.info(f"✅ Poke message sent to user {user_id} about activity {activity_data.get('id')}")
+                return {
+                    'sent': True,
+                    'message': 'Poke message sent successfully',
+                    'poke_response': poke_result
+                }
+            else:
+                self.logger.error(f"❌ Failed to send Poke message to user {user_id}: {poke_result.get('error')}")
+                return {
+                    'sent': False,
+                    'error': poke_result.get('error'),
+                    'poke_response': poke_result
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Error sending Poke message: {e}")
+            return {
+                'sent': False,
+                'error': f'Failed to send Poke message: {str(e)}'
+            }
+    
+    def _generate_poke_message_text(self, activity_data: dict) -> str:
+        """Generate the message text that will be sent via Poke"""
+        activity_type = activity_data.get('type', 'Run')
+        distance_meters = activity_data.get('distance', 0)
+        distance_km = round(distance_meters / 1000, 2) if distance_meters else 0
+        moving_time = activity_data.get('moving_time', 0)
+        
+        if moving_time:
+            minutes = moving_time // 60
+            seconds = moving_time % 60
+            duration_str = f"{minutes}:{seconds:02d}"
+        else:
+            duration_str = "unknown time"
+        
+        if distance_km > 0:
+            return f"🏃‍♂️ Great job on your {distance_km}km {activity_type.lower()} in {duration_str}! How did it feel? Any thoughts on your performance today?"
+        else:
+            activity_name = activity_data.get('name', 'Your run')
+            return f"🏃‍♂️ Nice work on '{activity_name}'! How did your {activity_type.lower()} go today? How are you feeling?"
     
     def _get_user_id_by_athlete_id(self, athlete_id: int) -> Optional[str]:
         """Get our internal user ID from Strava athlete ID"""
