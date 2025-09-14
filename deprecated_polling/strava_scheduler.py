@@ -14,15 +14,15 @@ class StravaActivityScheduler:
         self.strava_activity_monitor = strava_activity_monitor
         self.scheduler = APScheduler()
         
+        # Set up logging first
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
+        
         # Configure scheduler
         self._configure_scheduler()
         
         # Initialize scheduler with app
         self.scheduler.init_app(app)
-        
-        # Set up logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
     
     def _configure_scheduler(self):
         """Configure the scheduler settings"""
