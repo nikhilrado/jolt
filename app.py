@@ -371,8 +371,8 @@ def strava_callback():
                 if missing_scopes:
                     flash(f'Warning: Some permissions were not granted: {", ".join(missing_scopes)}', 'warning')
                 
-            flash('Strava connected successfully!', 'success')
-        else:
+                flash('Strava connected successfully!', 'success')
+            else:
                 flash('Failed to store Strava credentials', 'error')
         else:
             error_description = token_response.get('message', 'Unknown error')
@@ -2956,4 +2956,4 @@ if __name__ == '__main__':
     print("✅ No more polling - webhooks provide real-time notifications!")
     
     # Run the Flask app
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)
