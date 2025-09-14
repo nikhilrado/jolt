@@ -2462,107 +2462,13 @@ def get_user_notifications():
         return jsonify({'error': f'Failed to get notifications: {str(e)}'}), 500
 
 # ============================================================================
-# SCHEDULER MANAGEMENT ENDPOINTS
+
 # ============================================================================
 
-@app.route('/admin/scheduler/status', methods=['GET'])
-@require_api_auth
-def scheduler_status():
-    """Get status of all scheduled jobs"""
-    if not strava_scheduler:
-        return jsonify({'error': 'Scheduler not initialized'}), 500
-    
-    try:
-        jobs = strava_scheduler.get_job_status()
-        return jsonify({
-            'success': True,
-            'scheduler_running': strava_scheduler.scheduler.running,
-            'jobs': jobs
-        })
-    except Exception as e:
-        return jsonify({'error': f'Failed to get scheduler status: {str(e)}'}), 500
 
-@app.route('/admin/scheduler/start', methods=['POST'])
-@require_api_auth
-def start_scheduler():
-    """Start the Strava activity monitoring scheduler"""
-    if not strava_scheduler:
-        return jsonify({'error': 'Scheduler not initialized'}), 500
-    
-    try:
-        if strava_scheduler.start_monitoring():
-            return jsonify({
-                'success': True,
-                'message': 'Scheduler started successfully'
-            })
-        else:
-            return jsonify({'error': 'Failed to start scheduler'}), 500
-    except Exception as e:
-        return jsonify({'error': f'Failed to start scheduler: {str(e)}'}), 500
 
-@app.route('/admin/scheduler/stop', methods=['POST'])
-@require_api_auth
-def stop_scheduler():
-    """Stop the Strava activity monitoring scheduler"""
-    if not strava_scheduler:
-        return jsonify({'error': 'Scheduler not initialized'}), 500
-    
-    try:
-        if strava_scheduler.stop_monitoring():
-            return jsonify({
-                'success': True,
-                'message': 'Scheduler stopped successfully'
-            })
-        else:
-            return jsonify({'error': 'Failed to stop scheduler'}), 500
-    except Exception as e:
-        return jsonify({'error': f'Failed to stop scheduler: {str(e)}'}), 500
 
-@app.route('/admin/scheduler/trigger/<job_id>', methods=['POST'])
-@require_api_auth
-def trigger_job(job_id):
-    """Manually trigger a specific scheduled job"""
-    if not strava_scheduler:
-        return jsonify({'error': 'Scheduler not initialized'}), 500
-    
-    try:
-        if strava_scheduler.trigger_job_manually(job_id):
-            return jsonify({
-                'success': True,
-                'message': f'Job {job_id} triggered successfully'
-            })
-        else:
-            return jsonify({'error': f'Failed to trigger job {job_id}'}), 500
-    except Exception as e:
-        return jsonify({'error': f'Failed to trigger job: {str(e)}'}), 500
 
-@app.route('/admin/scheduler')
-@require_auth
-def scheduler_admin():
-    """Scheduler administration interface"""
-    # For demo purposes, we'll pass a placeholder token
-    # In production, you might want to generate a specific admin token
-    # or require additional authentication
-    user_id = session['user']['id']
-    
-    # Get user's API token for admin interface
-    try:
-        result = supabase.table('personal_access_tokens').select('id').eq(
-            'user_id', user_id
-        ).eq('is_active', True).single().execute()
-        
-        if result.data:
-            # User has a token - they can use the admin interface
-            return render_template('scheduler_admin.html', 
-                                 user=session['user'],
-                                 has_api_token=True)
-        else:
-            # User needs to generate an API token first
-            flash('Please generate an API token first to access the scheduler admin.', 'warning')
-            return redirect(url_for('api_token'))
-            
-    except Exception as e:
-        flash('Error checking API token. Please try again.', 'error')
         return redirect(url_for('home'))
 
 if __name__ == '__main__':

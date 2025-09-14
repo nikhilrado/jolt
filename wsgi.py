@@ -1,17 +1,12 @@
 """
-Production WSGI entry point for Jolt app with Strava scheduler
+Production WSGI entry point for Jolt app with webhook-based Strava integration
 """
 
 import os
-from app import app, strava_scheduler
+from app import app
 
-# Initialize scheduler for production
-if strava_scheduler and os.getenv('ENABLE_STRAVA_SCHEDULER', 'true').lower() == 'true':
-    print("Initializing Strava scheduler for production...")
-    if strava_scheduler.start_monitoring():
-        print("✅ Strava scheduler started successfully")
-    else:
-        print("❌ Failed to start Strava scheduler")
+print("✅ Jolt app initialized with webhook-based Strava integration")
+print("🎯 Real-time activity processing - no polling needed!")
 
 if __name__ == "__main__":
     app.run()
