@@ -4,6 +4,10 @@ from supabase import create_client, Client
 import requests
 from dotenv import load_dotenv
 import json
+import hashlib
+import secrets
+from functools import wraps
+from datetime import datetime, timedelta
 
 # Load environment variables
 load_dotenv()
@@ -14,12 +18,19 @@ app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
 # Supabase configuration
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')
+SUPABASE_SERVICE_KEY = os.getenv('SUPABASE_SERVICE_KEY')
 
 # Initialize supabase client only if credentials are provided
 supabase = None
+supabase_admin = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
         supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        # Create admin client with service role key for bypassing RLS
+        if SUPABASE_SERVICE_KEY:
+            supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        else:
+            supabase_admin = supabase  # Fallback to regular client
     except Exception as e:
         print(f"Warning: Failed to initialize Supabase client: {e}")
         print("Please check your SUPABASE_URL and SUPABASE_KEY in .env file")
@@ -31,6 +42,72 @@ else:
 STRAVA_CLIENT_ID = os.getenv('STRAVA_CLIENT_ID')
 STRAVA_CLIENT_SECRET = os.getenv('STRAVA_CLIENT_SECRET')
 STRAVA_REDIRECT_URI = os.getenv('STRAVA_REDIRECT_URI', 'http://localhost:5000/strava/callback')
+
+# Personal Access Token utilities
+def generate_pat():
+    """Generate a new personal access token"""
+    return f"jolt_pat_{secrets.token_hex(28)}"  # 64 chars total
+
+def hash_token(token):
+    """Create SHA-256 hash of token for database storage"""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+def verify_token(token, token_hash):
+    """Verify a token against its hash"""
+    return hashlib.sha256(token.encode()).hexdigest() == token_hash
+
+def require_auth(f):
+    """Decorator to require session authentication"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def require_api_auth(f):
+    """Decorator to require API token authentication"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get('Authorization', '')
+        
+        if not auth_header.startswith('Bearer '):
+            return jsonify({'error': 'Missing or invalid authorization header'}), 401
+        
+        token = auth_header.split(' ')[1]
+        if not token.startswith('jolt_pat_'):
+            return jsonify({'error': 'Invalid token format'}), 401
+        
+        # Verify token in database
+        token_hash = hash_token(token)
+        try:
+            result = supabase.table('personal_access_tokens').select('*').eq('token_hash', token_hash).eq('is_active', True).execute()
+            
+            if not result.data:
+                return jsonify({'error': 'Invalid or expired token'}), 401
+            
+            token_record = result.data[0]
+            
+            # Check if token is expired
+            if token_record.get('expires_at'):
+                expires_at = datetime.fromisoformat(token_record['expires_at'].replace('Z', '+00:00'))
+                if expires_at < datetime.now(expires_at.tzinfo):
+                    return jsonify({'error': 'Token has expired'}), 401
+            
+            # Update last_used_at
+            supabase.table('personal_access_tokens').update({
+                'last_used_at': datetime.utcnow().isoformat()
+            }).eq('id', token_record['id']).execute()
+            
+            # Add user info to request context
+            request.current_user_id = token_record['user_id']
+            
+            return f(*args, **kwargs)
+            
+        except Exception as e:
+            return jsonify({'error': 'Token validation failed'}), 401
+    
+    return decorated_function
 
 @app.route('/')
 def index():
@@ -125,11 +202,9 @@ def logout():
     return redirect(url_for('login'))
 
 @app.route('/home')
+@require_auth
 def home():
     """Home page - requires authentication"""
-    if 'user' not in session:
-        return redirect(url_for('login'))
-    
     # Check if user has connected Strava
     strava_connected = 'strava_access_token' in session
     
@@ -235,6 +310,262 @@ def strava_disconnect():
     
     flash('Strava account disconnected', 'success')
     return redirect(url_for('home'))
+
+# Personal Access Token Management Routes
+@app.route('/api-token')
+@require_auth
+def api_token():
+    """Display user's personal access token"""
+    try:
+        result = supabase.table('personal_access_tokens').select('id, last_used_at, expires_at, created_at, is_active').eq('user_id', session['user']['id']).single().execute()
+        
+        token_data = result.data if result.data else None
+        return render_template('api_token.html', token=token_data)
+        
+    except Exception as e:
+        # No token exists yet
+        return render_template('api_token.html', token=None)
+
+@app.route('/api-token/generate', methods=['POST'])
+@require_auth
+def generate_api_token():
+    """Generate or regenerate user's personal access token"""
+    try:
+        # Generate new token
+        token = generate_pat()
+        token_hash = hash_token(token)
+        
+        # Calculate expiration (1 year from now)
+        expires_at = datetime.utcnow() + timedelta(days=365)
+        
+        # Check if user already has a token
+        existing_result = supabase.table('personal_access_tokens').select('id').eq('user_id', session['user']['id']).execute()
+        
+        if existing_result.data:
+            # Update existing token
+            result = supabase.table('personal_access_tokens').update({
+                'token_hash': token_hash,
+                'expires_at': expires_at.isoformat(),
+                'created_at': datetime.utcnow().isoformat(),
+                'last_used_at': None,
+                'is_active': True
+            }).eq('user_id', session['user']['id']).execute()
+        else:
+            # Create new token
+            result = supabase.table('personal_access_tokens').insert({
+                'user_id': session['user']['id'],
+                'token_hash': token_hash,
+                'expires_at': expires_at.isoformat()
+            }).execute()
+        
+        if result.data:
+            # Show token to user (only time they'll see it)
+            return render_template('token_generated.html', token=token)
+        else:
+            flash('Failed to generate token', 'error')
+            
+    except Exception as e:
+        flash(f'Error generating token: {str(e)}', 'error')
+    
+    return redirect(url_for('api_token'))
+
+@app.route('/api-token/revoke', methods=['POST'])
+@require_auth
+def revoke_api_token():
+    """Revoke user's personal access token"""
+    try:
+        result = supabase.table('personal_access_tokens').update({
+            'is_active': False
+        }).eq('user_id', session['user']['id']).execute()
+        
+        if result.data:
+            flash('API token revoked successfully', 'success')
+        else:
+            flash('No active token found', 'error')
+            
+    except Exception as e:
+        flash(f'Error revoking token: {str(e)}', 'error')
+    
+    return redirect(url_for('api_token'))
+
+# API Routes (Token authenticated)
+@app.route('/api/v1/profile')
+@require_api_auth
+def api_profile():
+    """Get user profile via API"""
+    try:
+        # Get user data from Supabase
+        result = supabase.auth.admin.get_user(request.current_user_id)
+        user = result.user
+        
+        return jsonify({
+            'id': user.id,
+            'email': user.email,
+            'created_at': user.created_at
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/v1/activities')
+@require_api_auth
+def api_activities():
+    """Get user's Strava activities via API"""
+    try:
+        # This would need to fetch the user's Strava token from database
+        # For now, return a placeholder
+        return jsonify({
+            'message': 'Activities endpoint - integration with stored Strava tokens needed',
+            'user_id': request.current_user_id,
+            'activities': []
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/v1/stats')
+@require_api_auth  
+def api_stats():
+    """Get user's running statistics via API"""
+    try:
+        # Placeholder for stats calculation
+        return jsonify({
+            'total_runs': 0,
+            'total_distance': 0,
+            'total_time': 0,
+            'average_pace': 0,
+            'user_id': request.current_user_id
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/v1/email')
+@require_api_auth
+def api_email():
+    """Get user's email address via API"""
+    try:
+        # Get user data from Supabase
+        result = supabase.auth.admin.get_user(request.current_user_id)
+        user = result.user
+        
+        return jsonify({
+            'email': user.email
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Session-based API endpoints for token management
+@app.route('/api/v1/token', methods=['GET'])
+@require_auth
+def api_get_token():
+    """Get current token status via API (requires session auth)"""
+    try:
+        result = supabase.table('personal_access_tokens').select('id, last_used_at, expires_at, created_at, is_active').eq('user_id', session['user']['id']).single().execute()
+        
+        if result.data:
+            token_data = result.data
+            return jsonify({
+                'has_token': True,
+                'token_info': {
+                    'id': token_data['id'],
+                    'created_at': token_data['created_at'],
+                    'expires_at': token_data['expires_at'],
+                    'last_used_at': token_data['last_used_at'],
+                    'is_active': token_data['is_active']
+                }
+            })
+        else:
+            return jsonify({
+                'has_token': False,
+                'token_info': None
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'has_token': False,
+            'token_info': None,
+            'message': 'No token found'
+        })
+
+@app.route('/api/v1/token', methods=['POST'])
+@require_auth
+def api_generate_token():
+    """Generate or regenerate token via API (requires session auth)"""
+    try:
+        # Generate new token
+        token = generate_pat()
+        token_hash = hash_token(token)
+        
+        # Calculate expiration (1 year from now)
+        expires_at = datetime.utcnow() + timedelta(days=365)
+        
+        # Check if user already has a token
+        existing_result = supabase.table('personal_access_tokens').select('id').eq('user_id', session['user']['id']).execute()
+        
+        if existing_result.data:
+            # Update existing token
+            result = supabase.table('personal_access_tokens').update({
+                'token_hash': token_hash,
+                'expires_at': expires_at.isoformat(),
+                'created_at': datetime.utcnow().isoformat(),
+                'last_used_at': None,
+                'is_active': True
+            }).eq('user_id', session['user']['id']).execute()
+        else:
+            # Create new token
+            result = supabase.table('personal_access_tokens').insert({
+                'user_id': session['user']['id'],
+                'token_hash': token_hash,
+                'expires_at': expires_at.isoformat()
+            }).execute()
+        
+        if result.data:
+            return jsonify({
+                'success': True,
+                'token': token,
+                'message': 'Token generated successfully',
+                'expires_at': expires_at.isoformat(),
+                'warning': 'This is the only time you will see this token. Store it securely!'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to generate token'
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/v1/token', methods=['DELETE'])
+@require_auth
+def api_revoke_token():
+    """Revoke token via API (requires session auth)"""
+    try:
+        result = supabase.table('personal_access_tokens').update({
+            'is_active': False
+        }).eq('user_id', session['user']['id']).execute()
+        
+        if result.data:
+            return jsonify({
+                'success': True,
+                'message': 'Token revoked successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'No active token found'
+            }), 404
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 if __name__ == '__main__':
     # For local development only

@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+
+{% block title %}API Token - Jolt{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-key"></i> API Access Token</h2>
+            <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Home
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-shield-alt"></i> Personal Access Token</h5>
+            </div>
+            <div class="card-body">
+                {% if token and token.is_active %}
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle"></i> You have an active API token
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-sm-6">
+                            <strong>Created:</strong><br>
+                            <span class="text-muted">{{ token.created_at[:10] if token.created_at else 'Unknown' }}</span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong>Expires:</strong><br>
+                            <span class="text-muted">{{ token.expires_at[:10] if token.expires_at else 'Never' }}</span>
+                        </div>
+                    </div>
+                    
+                    {% if token.last_used_at %}
+                    <div class="mt-3">
+                        <strong>Last Used:</strong><br>
+                        <span class="text-muted">{{ token.last_used_at[:10] }}</span>
+                    </div>
+                    {% else %}
+                    <div class="mt-3">
+                        <span class="badge bg-warning">Never used</span>
+                    </div>
+                    {% endif %}
+                    
+                    <hr>
+                    
+                    <div class="d-grid gap-2 d-md-flex">
+                        <button id="regenerate-btn" class="btn btn-warning me-md-2" onclick="regenerateToken()">
+                            <i class="fas fa-sync-alt"></i> Regenerate Token
+                        </button>
+                        
+                        <button id="revoke-btn" class="btn btn-danger" onclick="revokeToken()">
+                            <i class="fas fa-times"></i> Revoke Token
+                        </button>
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> You don't have an active API token yet.
+                    </div>
+                    
+                    <p>Generate a personal access token to allow external applications to access your Jolt data via our API.</p>
+                    
+                    <button id="generate-btn" class="btn btn-primary btn-lg" onclick="generateToken()">
+                        <i class="fas fa-plus"></i> Generate API Token
+                    </button>
+                {% endif %}
+                
+                <!-- API Response Display -->
+                <div id="api-response" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h6><i class="fas fa-info-circle"></i> About API Tokens</h6>
+            </div>
+            <div class="card-body">
+                <p><strong>What is this?</strong></p>
+                <p class="small text-muted">A personal access token allows external applications to access your Jolt data securely via our API.</p>
+                
+                <p><strong>How to use:</strong></p>
+                <p class="small text-muted">Include the token in the Authorization header:</p>
+                <code class="small">Authorization: Bearer jolt_pat_...</code>
+                
+                <p class="mt-3"><strong>Available endpoints:</strong></p>
+                <ul class="small text-muted">
+                    <li><code>GET /api/v1/profile</code></li>
+                    <li><code>GET /api/v1/email</code></li>
+                    <li><code>GET /api/v1/activities</code></li>
+                    <li><code>GET /api/v1/stats</code></li>
+                </ul>
+                
+                <div class="alert alert-warning alert-sm mt-3">
+                    <i class="fas fa-exclamation-triangle"></i> 
+                    <small>Keep your token secure! Don't share it publicly.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Generate new token
+    async function generateToken() {
+        try {
+            const button = document.getElementById('generate-btn');
+            if (button) {
+                button.disabled = true;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+            }
+            
+            const response = await fetch('/api/v1/token', { method: 'POST' });
+            const data = await response.json();
+            
+            if (data.success) {
+                document.getElementById('api-response').innerHTML = `
+                    <div class="alert alert-success">
+                        <h5>Token Generated Successfully!</h5>
+                        <div class="token-container">
+                            <code id="generated-token">${data.token}</code>
+                            <button class="btn btn-sm btn-outline-primary ms-2" onclick="copyToken()">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                        </div>
+                        <div class="alert alert-warning mt-3">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <strong>Important:</strong> This is the only time you'll see this token. Store it securely!
+                        </div>
+                    </div>
+                `;
+                // Refresh page after a delay to show new state
+                setTimeout(() => location.reload(), 3000);
+            } else {
+                document.getElementById('api-response').innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>Error:</strong> ${data.error}
+                    </div>
+                `;
+            }
+        } catch (error) {
+            console.error('Error generating token:', error);
+            document.getElementById('api-response').innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>Error:</strong> Failed to generate token. Please try again.
+                </div>
+            `;
+        } finally {
+            const button = document.getElementById('generate-btn');
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-plus"></i> Generate API Token';
+            }
+        }
+    }
+
+    // Regenerate existing token
+    async function regenerateToken() {
+        if (!confirm('This will invalidate your current token. Are you sure?')) {
+            return;
+        }
+        
+        try {
+            const button = document.getElementById('regenerate-btn');
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Regenerating...';
+            
+            const response = await fetch('/api/v1/token', { method: 'POST' });
+            const data = await response.json();
+            
+            if (data.success) {
+                document.getElementById('api-response').innerHTML = `
+                    <div class="alert alert-success">
+                        <h5>Token Regenerated Successfully!</h5>
+                        <div class="token-container">
+                            <code id="generated-token">${data.token}</code>
+                            <button class="btn btn-sm btn-outline-primary ms-2" onclick="copyToken()">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                        </div>
+                        <div class="alert alert-warning mt-3">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <strong>Important:</strong> This is the only time you'll see this token. Store it securely!
+                        </div>
+                    </div>
+                `;
+                // Refresh page after a delay
+                setTimeout(() => location.reload(), 3000);
+            } else {
+                document.getElementById('api-response').innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>Error:</strong> ${data.error}
+                    </div>
+                `;
+            }
+        } catch (error) {
+            console.error('Error regenerating token:', error);
+            document.getElementById('api-response').innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>Error:</strong> Failed to regenerate token. Please try again.
+                </div>
+            `;
+        } finally {
+            const button = document.getElementById('regenerate-btn');
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-sync-alt"></i> Regenerate Token';
+        }
+    }
+
+    // Revoke token
+    async function revokeToken() {
+        if (!confirm('Are you sure you want to revoke your API token? This action cannot be undone.')) {
+            return;
+        }
+        
+        try {
+            const button = document.getElementById('revoke-btn');
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Revoking...';
+            
+            const response = await fetch('/api/v1/token', { method: 'DELETE' });
+            const data = await response.json();
+            
+            if (data.success) {
+                document.getElementById('api-response').innerHTML = `
+                    <div class="alert alert-success">
+                        <strong>Success:</strong> ${data.message}
+                    </div>
+                `;
+                // Refresh page after a delay
+                setTimeout(() => location.reload(), 2000);
+            } else {
+                document.getElementById('api-response').innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>Error:</strong> ${data.error}
+                    </div>
+                `;
+            }
+        } catch (error) {
+            console.error('Error revoking token:', error);
+            document.getElementById('api-response').innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>Error:</strong> Failed to revoke token. Please try again.
+                </div>
+            `;
+        } finally {
+            const button = document.getElementById('revoke-btn');
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-times"></i> Revoke Token';
+        }
+    }
+
+    // Copy token to clipboard
+    function copyToken() {
+        const tokenElement = document.getElementById('generated-token');
+        const text = tokenElement.textContent;
+        
+        navigator.clipboard.writeText(text).then(() => {
+            // Show feedback
+            const copyBtn = event.target.closest('button');
+            const originalText = copyBtn.innerHTML;
+            copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+            copyBtn.classList.remove('btn-outline-primary');
+            copyBtn.classList.add('btn-success');
+            
+            setTimeout(() => {
+                copyBtn.innerHTML = originalText;
+                copyBtn.classList.remove('btn-success');
+                copyBtn.classList.add('btn-outline-primary');
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy: ', err);
+            alert('Failed to copy token. Please copy it manually.');
+        });
+    }
+</script>
+{% endblock %}
