@@ -4,7 +4,7 @@ Handles storing, retrieving, and refreshing Strava OAuth tokens
 """
 
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 import os
 
@@ -18,8 +18,8 @@ class StravaTokenManager:
     def store_credentials(self, user_id: str, token_response: Dict[str, Any]) -> bool:
         """Store Strava credentials in database"""
         try:
-            # Calculate expiration time
-            expires_at = datetime.utcnow() + timedelta(seconds=token_response.get('expires_in', 21600))
+            # Calculate expiration time using timezone-aware datetime
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=token_response.get('expires_in', 21600))
             
             credentials_data = {
                 'user_id': user_id,
@@ -29,7 +29,7 @@ class StravaTokenManager:
                 'athlete_id': token_response['athlete']['id'],
                 'athlete_data': token_response['athlete'],
                 'scope': token_response.get('scope', ''),  # Store granted scopes
-                'updated_at': datetime.utcnow().isoformat()
+                'updated_at': datetime.now(timezone.utc).isoformat()
             }
             
             # Use upsert to handle updates if credentials already exist
@@ -67,8 +67,9 @@ class StravaTokenManager:
         
         # Check if token is expired or will expire within 1 hour (3600 seconds)
         # This follows Strava's recommendation to refresh tokens that expire in 1 hour or less
-        expires_at = datetime.fromisoformat(credentials['expires_at'].replace('Z', ''))
-        time_until_expiry = (expires_at - datetime.utcnow()).total_seconds()
+        expires_at = datetime.fromisoformat(credentials['expires_at'].replace('Z', '+00:00'))
+        current_time = datetime.now(expires_at.tzinfo)  # Make sure both datetimes have the same timezone
+        time_until_expiry = (expires_at - current_time).total_seconds()
         
         if time_until_expiry <= 3600:  # 1 hour = 3600 seconds
             # Token is expired or will expire within 1 hour, refresh it
@@ -122,7 +123,7 @@ class StravaTokenManager:
         try:
             result = self.supabase.table('strava_credentials').update({
                 'is_active': False,
-                'updated_at': datetime.utcnow().isoformat()
+                'updated_at': datetime.now(timezone.utc).isoformat()
             }).eq('user_id', user_id).execute()
             
             return len(result.data) > 0
@@ -165,7 +166,7 @@ class StravaTokenManager:
         """Update the last activity check timestamp and optionally the last activity ID"""
         try:
             update_data = {
-                'last_activity_check': datetime.utcnow().isoformat()
+                'last_activity_check': datetime.now(timezone.utc).isoformat()
             }
             
             if last_activity_id is not None:
