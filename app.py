@@ -277,15 +277,14 @@ def strava_callback():
     
     return redirect(url_for('home'))
 
-@app.route('/strava/activities')
+@app.route('/api/strava/activities')
 def strava_activities():
-    """Display Strava activities with detailed data"""
+    """Get Strava activities as JSON"""
     if 'user' not in session:
-        return redirect(url_for('login'))
+        return jsonify({'error': 'User not authenticated'}), 401
     
     if 'strava_access_token' not in session:
-        flash('Please connect your Strava account first', 'error')
-        return redirect(url_for('home'))
+        return jsonify({'error': 'Strava account not connected'}), 400
     
     try:
         # Fetch activities from Strava
@@ -302,14 +301,16 @@ def strava_activities():
                 enhanced_activity = enhance_activity_data(activity, headers)
                 enhanced_activities.append(enhanced_activity)
             
-            return render_template('activities.html', activities=enhanced_activities)
+            return jsonify({
+                'success': True,
+                'total_activities': len(enhanced_activities),
+                'activities': enhanced_activities
+            })
         else:
-            flash('Failed to fetch activities from Strava', 'error')
-            return redirect(url_for('home'))
+            return jsonify({'error': 'Failed to fetch activities from Strava'}), 500
             
     except Exception as e:
-        flash(f'Error fetching activities: {str(e)}', 'error')
-        return redirect(url_for('home'))
+        return jsonify({'error': f'Error fetching activities: {str(e)}'}), 500
 
 def enhance_activity_data(activity, headers):
     """Enhance activity with additional detailed data"""
@@ -778,15 +779,14 @@ def get_meal_insights(user_id, days=30):
     except Exception as e:
         raise ValueError(f"Failed to get meal insights: {str(e)}")
 
-@app.route('/analytics/comprehensive')
+@app.route('/api/analytics/comprehensive')
 def comprehensive_analytics():
-    """Display comprehensive training analytics"""
+    """Get comprehensive training analytics as JSON"""
     if 'user' not in session:
-        return redirect(url_for('login'))
+        return jsonify({'error': 'User not authenticated'}), 401
     
     if 'strava_access_token' not in session:
-        flash('Please connect your Strava account first', 'error')
-        return redirect(url_for('home'))
+        return jsonify({'error': 'Strava account not connected'}), 400
     
     try:
         # Get time period from query parameter (default to 90 days)
@@ -805,11 +805,26 @@ def comprehensive_analytics():
         # Get comprehensive insights for the specified period
         insights = analytics.get_comprehensive_insights(days=days)
         
-        return render_template('analytics.html', insights=insights, selected_days=days, valid_periods=valid_periods)
+        # Convert insights to JSON-serializable format
+        analytics_data = {
+            'success': True,
+            'analysis_period': f'{days} days',
+            'training_load': insights.training_load.__dict__ if insights.training_load else {},
+            'intensity_zones': insights.intensity_zones.__dict__ if insights.intensity_zones else {},
+            'performance_curves': insights.performance_curves.__dict__ if insights.performance_curves else {},
+            'volume_trends': insights.volume_trends.__dict__ if insights.volume_trends else {},
+            'consistency': insights.consistency.__dict__ if insights.consistency else {},
+            'terrain_analysis': insights.terrain_analysis.__dict__ if insights.terrain_analysis else {},
+            'cadence_analysis': insights.cadence_analysis.__dict__ if insights.cadence_analysis else {},
+            'wellness_score': insights.wellness_score,
+            'readiness_score': insights.readiness_score,
+            'recommendations': insights.recommendations
+        }
+        
+        return jsonify(analytics_data)
         
     except Exception as e:
-        flash(f'Error generating analytics: {str(e)}', 'error')
-        return redirect(url_for('home'))
+        return jsonify({'error': f'Error generating analytics: {str(e)}'}), 500
 
 @app.route('/analytics/wellness', methods=['GET', 'POST'])
 def wellness_tracking():
@@ -1004,15 +1019,14 @@ def api_performance_trends():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/psychology/analysis')
+@app.route('/api/psychology/analysis')
 def psychology_analysis():
-    """Display performance psychology analysis"""
+    """Get performance psychology analysis as JSON"""
     if 'user' not in session:
-        return redirect(url_for('login'))
+        return jsonify({'error': 'User not authenticated'}), 401
     
     if 'strava_access_token' not in session:
-        flash('Please connect your Strava account first', 'error')
-        return redirect(url_for('home'))
+        return jsonify({'error': 'Strava account not connected'}), 400
     
     try:
         # Get time period from query parameter (default to 30 days)
@@ -1028,11 +1042,21 @@ def psychology_analysis():
         # Get comprehensive psychology analysis for the specified period
         analysis = psychology_engine.analyze_performance_psychology(days=days)
         
-        return render_template('psychology_analysis.html', analysis=analysis, selected_days=days, valid_periods=valid_periods)
+        # Convert analysis to JSON-serializable format
+        psychology_data = {
+            'success': True,
+            'analysis_period': f'{days} days',
+            'performance_events': [event.__dict__ for event in analysis.performance_events] if analysis.performance_events else [],
+            'wellness_insights': analysis.wellness_insights,
+            'psychological_patterns': analysis.psychological_patterns,
+            'recommendations': analysis.recommendations,
+            'summary': analysis.summary
+        }
+        
+        return jsonify(psychology_data)
         
     except Exception as e:
-        flash(f'Error generating psychology analysis: {str(e)}', 'error')
-        return redirect(url_for('home'))
+        return jsonify({'error': f'Error generating psychology analysis: {str(e)}'}), 500
 
 @app.route('/psychology/wellness-submit', methods=['POST'])
 def submit_wellness_psychology():
@@ -1294,14 +1318,13 @@ def revoke_api_token():
 def api_profile():
     """Get user profile via API"""
     try:
-        # Get user data from Supabase
-        result = supabase.auth.admin.get_user(request.current_user_id)
-        user = result.user
-        
+        # For now, return basic user info from the token
+        # In a production app, you'd want to store more user data in your own tables
         return jsonify({
-            'id': user.id,
-            'email': user.email,
-            'created_at': user.created_at
+            'id': request.current_user_id,
+            'message': 'User profile retrieved successfully',
+            'token_valid': True,
+            'note': 'User details can be enhanced by storing additional profile data in your database'
         })
         
     except Exception as e:
@@ -1521,11 +1544,11 @@ def meal_analysis_result():
     
     return render_template('meal_analysis_result.html', meal_data=meal_data)
 
-@app.route('/nutrition/dashboard')
+@app.route('/api/nutrition/dashboard')
 def nutrition_dashboard():
-    """Display nutrition dashboard"""
+    """Get nutrition dashboard data as JSON"""
     if 'user' not in session:
-        return redirect(url_for('login'))
+        return jsonify({'error': 'User not authenticated'}), 401
     
     try:
         user_id = session['user']['id']
@@ -1549,26 +1572,31 @@ def nutrition_dashboard():
         else:
             avg_calories = avg_carbs = avg_fats = avg_protein = 0
         
-        return render_template('nutrition_dashboard.html', 
-                             trends=trends, 
-                             selected_days=days, 
-                             valid_periods=valid_periods,
-                             averages={
-                                 'calories': round(avg_calories, 1),
-                                 'carbs': round(avg_carbs, 1),
-                                 'fats': round(avg_fats, 1),
-                                 'protein': round(avg_protein, 1)
-                             })
+        return jsonify({
+            'success': True,
+            'analysis_period': f'{days} days',
+            'trends': trends,
+            'averages': {
+                'calories': round(avg_calories, 1),
+                'carbs': round(avg_carbs, 1),
+                'fats': round(avg_fats, 1),
+                'protein': round(avg_protein, 1)
+            },
+            'summary': {
+                'total_days': len(trends),
+                'total_meals': sum(day['total_meals'] for day in trends),
+                'avg_daily_calories': round(avg_calories, 1)
+            }
+        })
         
     except Exception as e:
-        flash(f'Error loading nutrition dashboard: {str(e)}', 'error')
-        return redirect(url_for('home'))
+        return jsonify({'error': f'Error loading nutrition dashboard: {str(e)}'}), 500
 
-@app.route('/nutrition/insights')
+@app.route('/api/nutrition/insights')
 def nutrition_insights():
-    """Display comprehensive nutrition insights and analysis"""
+    """Get comprehensive nutrition insights as JSON"""
     if 'user' not in session:
-        return redirect(url_for('login'))
+        return jsonify({'error': 'User not authenticated'}), 401
     
     try:
         user_id = session['user']['id']
@@ -1583,14 +1611,14 @@ def nutrition_insights():
         # Get comprehensive meal insights
         insights = get_meal_insights(user_id, days)
         
-        return render_template('nutrition_insights.html', 
-                             insights=insights, 
-                             selected_days=days, 
-                             valid_periods=valid_periods)
+        return jsonify({
+            'success': True,
+            'analysis_period': f'{days} days',
+            'insights': insights
+        })
         
     except Exception as e:
-        flash(f'Error loading nutrition insights: {str(e)}', 'error')
-        return redirect(url_for('home'))
+        return jsonify({'error': f'Error loading nutrition insights: {str(e)}'}), 500
 
 # API Endpoints for Nutrition
 @app.route('/api/nutrition/log-meal', methods=['POST'])
